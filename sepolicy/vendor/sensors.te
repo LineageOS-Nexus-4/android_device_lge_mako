@@ -1,0 +1,17 @@
+# Create /dev/socket/sensors/ctl
+allow sensors sensors_socket:dir w_dir_perms;
+allow sensors sensors_socket:sock_file create_file_perms;
+
+# Create directories and files under /data/misc/sensors
+# and /data/system/sensors. Allow generic r/w file access.
+allow sensors sensors_vendor_data_file:dir create_dir_perms;
+allow sensors sensors_vendor_data_file:file create_file_perms;
+
+# Access sensor nodes (/dev/msm_dsps)
+allow sensors sensors_device:chr_file rw_file_perms;
+
+# Access /sys/devices/system/soc/soc0
+r_dir_file(sensors, sysfs_socinfo)
+
+# Wake lock access
+wakelock_use(sensors)
