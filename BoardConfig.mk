@@ -81,6 +81,8 @@ BOARD_HOSTAPD_DRIVER := NL80211
 BOARD_HOSTAPD_PRIVATE_LIB := lib_driver_cmd_$(BOARD_WLAN_DEVICE)
 WIFI_DRIVER_FW_PATH_STA := "sta"
 WIFI_DRIVER_FW_PATH_AP  := "ap"
+# qcwcn wpa_supplicant.conf is still built from the legacy Android.mk
+FORCE_USE_ANDROIDMK_FOR_WPA_CONF := true
 
 # Display
 TARGET_SCREEN_DENSITY := 320
