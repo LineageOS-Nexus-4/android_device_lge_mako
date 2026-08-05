@@ -1,0 +1,7 @@
+soong_namespace {
+    imports: [
+        "hardware/qcom/wlan/legacy",
+        "hardware/qcom/wlan/wcn6740",
+        "hardware/qcom/wlan/wcn7760/qcwcn/wpa_supplicant_8_lib",
+    ],
+}
