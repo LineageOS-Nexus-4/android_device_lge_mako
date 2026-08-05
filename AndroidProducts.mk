@@ -18,6 +18,6 @@ PRODUCT_MAKEFILES := \
     $(LOCAL_DIR)/aosp_mako.mk
 
 COMMON_LUNCH_CHOICES := \
-    aosp_mako-eng \
-    aosp_mako-userdebug \
-    aosp_mako-user
+    aosp_mako-trunk_staging-eng \
+    aosp_mako-trunk_staging-userdebug \
+    aosp_mako-trunk_staging-user
