@@ -22,6 +22,7 @@
 
 # Soong
 PRODUCT_SOONG_NAMESPACES += $(LOCAL_PATH)
+PRODUCT_SOONG_NAMESPACES += hardware/qcom/wlan/legacy
 
 # Overlays
 DEVICE_PACKAGE_OVERLAYS += \
