@@ -53,6 +53,9 @@ TARGET_USES_64_BIT_BINDER := true
 
 # mako is an A-only device; AOSP 17 defaults AB_OTA_UPDATER to true
 AB_OTA_UPDATER := false
+# AOSP 17 OTA tooling assumes recovery-as-boot; mako uses a separate recovery
+# partition, so skip OTA package generation (flashable images are the deliverable).
+TARGET_SKIP_OTA_PACKAGE := true
 
 # Security patch level
 VENDOR_SECURITY_PATCH := 2015-09-08
