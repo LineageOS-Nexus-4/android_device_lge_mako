@@ -18,6 +18,9 @@
 # Inherit from vendor
 -include vendor/lge/mako/BoardConfigVendor.mk
 
+# Legacy device: proprietary ELF blobs are shipped via PRODUCT_COPY_FILES
+BUILD_BROKEN_ELF_PREBUILT_PRODUCT_COPY_FILES := true
+
 # Device Path
 DEVICE_PATH := device/lge/mako
 
@@ -47,6 +50,9 @@ TARGET_BOOTLOADER_NAME := mako
 
 # Binder API version
 TARGET_USES_64_BIT_BINDER := true
+
+# mako is an A-only device; AOSP 17 defaults AB_OTA_UPDATER to true
+AB_OTA_UPDATER := false
 
 # Security patch level
 VENDOR_SECURITY_PATCH := 2015-09-08
@@ -89,6 +95,9 @@ TARGET_SCREEN_DENSITY := 320
 
 # Graphics
 TARGET_USES_ION := true
+
+# Our AIDL light service handles LEDs directly; skip qcom liblight
+TARGET_PROVIDES_LIBLIGHT := true
 TARGET_ADDITIONAL_GRALLOC_10_USAGE_BITS := 0x2000U | 0x02000000U
 TARGET_DISABLE_POSTRENDER_CLEANUP := true
 
