@@ -63,9 +63,7 @@ PRODUCT_COPY_FILES += \
 
 # Bluetooth
 PRODUCT_PACKAGES += \
-    android.hardware.bluetooth@1.0-impl \
-    android.hardware.bluetooth@1.0-service \
-    libbt-vendor
+
 
 PRODUCT_PACKAGES += \
     bdAddrLoader
@@ -73,9 +71,7 @@ PRODUCT_PACKAGES += \
 # Camera
 PRODUCT_PACKAGES += \
     android.hardware.camera.provider@2.4-impl \
-    android.hardware.camera.provider@2.4-service \
-    camera.mako \
-    libmmcamera_interface
+    android.hardware.camera.provider@2.4-service
 
 # Charger
 PRODUCT_PACKAGES += \
@@ -103,11 +99,7 @@ PRODUCT_PACKAGES += \
     copybit.msm8960 \
     memtrack.msm8960
 
-# GPS
-PRODUCT_PACKAGES += \
-    gps.msm8960 \
-    gps.conf \
-    sap.conf
+# GPS (deferred: requires external/gps.utils + libloc repos not in this tree)
 
 # GNSS HAL
 PRODUCT_PACKAGES += \
@@ -116,8 +108,7 @@ PRODUCT_PACKAGES += \
 
 # Health
 PRODUCT_PACKAGES += \
-    android.hardware.health@2.1-impl \
-    android.hardware.health@2.1-service
+    android.hardware.health-service.example
 
 # HIDL
 PRODUCT_ENFORCE_VINTF_MANIFEST_OVERRIDE := true
@@ -143,8 +134,7 @@ PRODUCT_PACKAGES += \
 
 # Lights
 PRODUCT_PACKAGES += \
-    android.hardware.light@2.0-impl \
-    android.hardware.light@2.0-service.mako
+    android.hardware.lights-service.mako
 
 # Media
 PRODUCT_COPY_FILES += \
@@ -173,16 +163,7 @@ PRODUCT_CHARACTERISTICS := nosdcard
 
 # OMX
 PRODUCT_PACKAGES += \
-    libc2dcolorconvert \
-    libmm-omxcore \
-    libOmxCore \
-    libOmxVdec \
-    libOmxVenc \
-    libOmxAacEnc \
-    libOmxAmrEnc \
-    libOmxEvrcEnc \
-    libOmxQcelp13Enc \
-    libstagefrighthw
+
 
 # Permissions
 PRODUCT_COPY_FILES += \
@@ -237,7 +218,7 @@ PRODUCT_COPY_FILES += \
 
 # RenderScript HAL
 PRODUCT_PACKAGES += \
-    android.hardware.renderscript@1.0-impl
+
 
 # Sensors
 PRODUCT_PACKAGES += \
@@ -254,8 +235,7 @@ PRODUCT_COPY_FILES += \
 
 # Vibrator
 PRODUCT_PACKAGES += \
-    android.hardware.vibrator@1.0-impl \
-    android.hardware.vibrator@1.0-service
+
 
 # USB HAL
 PRODUCT_PACKAGES += \
@@ -281,3 +261,8 @@ PRODUCT_COPY_FILES += \
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/wifi/wpa_supplicant_overlay.conf:$(TARGET_COPY_OUT_VENDOR)/etc/wifi/wpa_supplicant_overlay.conf \
     $(LOCAL_PATH)/wifi/p2p_supplicant_overlay.conf:$(TARGET_COPY_OUT_VENDOR)/etc/wifi/p2p_supplicant_overlay.conf
+
+# VINTF: the device manifest declares target-level "legacy"; AOSP 17 no longer
+# ships a legacy framework matrix, so provide an empty one for checkvintf.
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/vintf/compatibility_matrix.legacy.xml:$(TARGET_COPY_OUT_SYSTEM)/etc/vintf/compatibility_matrix.legacy.xml
