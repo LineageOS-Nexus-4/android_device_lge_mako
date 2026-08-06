@@ -261,8 +261,3 @@ PRODUCT_COPY_FILES += \
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/wifi/wpa_supplicant_overlay.conf:$(TARGET_COPY_OUT_VENDOR)/etc/wifi/wpa_supplicant_overlay.conf \
     $(LOCAL_PATH)/wifi/p2p_supplicant_overlay.conf:$(TARGET_COPY_OUT_VENDOR)/etc/wifi/p2p_supplicant_overlay.conf
-
-# VINTF: the device manifest declares target-level "legacy"; AOSP 17 no longer
-# ships a legacy framework matrix, so provide an empty one for checkvintf.
-PRODUCT_COPY_FILES += \
-    $(LOCAL_PATH)/vintf/compatibility_matrix.legacy.xml:$(TARGET_COPY_OUT_SYSTEM)/etc/vintf/compatibility_matrix.legacy.xml
