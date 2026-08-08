@@ -1,3 +1,6 @@
+# Lights HAL
+/vendor/bin/hw/android\.hardware\.lights-service\.mako   u:object_r:hal_light_default_exec:s0
+
 # NFC
 /dev/bcm2079x-i2c                      u:object_r:nfc_device:s0
 
@@ -57,8 +60,6 @@
 # Binary executables
 /(vendor|system/vendor)/bin/bdAddrLoader        u:object_r:bluetooth_loader_exec:s0
 /(vendor|system/vendor)/bin/efsks               u:object_r:mdm_helper_exec:s0
-/(vendor|system/vendor)/bin/qcks                u:object_r:mdm_helper_exec:s0
-/(vendor|system/vendor)/bin/thermald            u:object_r:thermal-engine_exec:s0
 
 # Scripts
 /(vendor|system/vendor)/bin/init\.mako\.bt\.sh          u:object_r:bluetooth_loader_exec:s0

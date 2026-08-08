@@ -14,33 +14,39 @@
  * limitations under the License.
  */
 
-#define LOG_TAG "LightService"
+#define LOG_TAG "lights-service.mako"
 
 #include "Light.h"
 
+#include <aidl/android/hardware/light/FlashMode.h>
 #include <android-base/logging.h>
 
-namespace {
-using android::hardware::light::V2_0::LightState;
+#include <cstdint>
 
+namespace aidl {
+namespace android {
+namespace hardware {
+namespace light {
+
+using ::aidl::android::hardware::light::FlashMode;
+using ::aidl::android::hardware::light::HwLight;
+using ::aidl::android::hardware::light::HwLightState;
+using ::aidl::android::hardware::light::LightType;
+using ::ndk::ScopedAStatus;
+
+namespace {
 static constexpr int DEFAULT_MAX_BRIGHTNESS = 255;
 
-static uint32_t rgbToBrightness(const LightState& state) {
+static uint32_t rgbToBrightness(const HwLightState& state) {
     uint32_t color = state.color & 0x00ffffff;
     return ((77 * ((color >> 16) & 0xff)) + (150 * ((color >> 8) & 0xff)) +
             (29 * (color & 0xff))) >> 8;
 }
 
-static bool isLit(const LightState& state) {
+static bool isLit(const HwLightState& state) {
     return (state.color & 0x00ffffff);
 }
 }  // anonymous namespace
-
-namespace android {
-namespace hardware {
-namespace light {
-namespace V2_0 {
-namespace implementation {
 
 Light::Light(std::pair<std::ofstream, uint32_t>&& lcd_backlight,
              std::ofstream&& red_led,
@@ -58,48 +64,65 @@ Light::Light(std::pair<std::ofstream, uint32_t>&& lcd_backlight,
       mLedGrp(std::move(led_grp)),
       mLedPwm(std::move(led_pwm)),
       mLedLock(std::move(led_lock)) {
-    auto attnFn(std::bind(&Light::setAttentionLight, this, std::placeholders::_1));
-    auto backlightFn(std::bind(&Light::setLcdBacklight, this, std::placeholders::_1));
-    auto batteryFn(std::bind(&Light::setBatteryLight, this, std::placeholders::_1));
-    auto notifFn(std::bind(&Light::setNotificationLight, this, std::placeholders::_1));
-    mLights.emplace(std::make_pair(Type::ATTENTION, attnFn));
-    mLights.emplace(std::make_pair(Type::BACKLIGHT, backlightFn));
-    mLights.emplace(std::make_pair(Type::BATTERY, batteryFn));
-    mLights.emplace(std::make_pair(Type::NOTIFICATIONS, notifFn));
+    mTypes.emplace(std::make_pair(static_cast<int32_t>(LightType::BACKLIGHT), LightType::BACKLIGHT));
+    mTypes.emplace(std::make_pair(static_cast<int32_t>(LightType::BATTERY), LightType::BATTERY));
+    mTypes.emplace(std::make_pair(static_cast<int32_t>(LightType::NOTIFICATIONS),
+                                  LightType::NOTIFICATIONS));
+    mTypes.emplace(std::make_pair(static_cast<int32_t>(LightType::ATTENTION), LightType::ATTENTION));
 }
 
-// Methods from ::android::hardware::light::V2_0::ILight follow.
-Return<Status> Light::setLight(Type type, const LightState& state) {
-    auto it = mLights.find(type);
-
-    if (it == mLights.end()) {
-        return Status::LIGHT_NOT_SUPPORTED;
+ScopedAStatus Light::setLightState(int32_t id, const HwLightState& state) {
+    auto it = mTypes.find(id);
+    if (it == mTypes.end()) {
+        return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
     }
 
-    it->second(state);
-
-    return Status::SUCCESS;
-}
-
-Return<void> Light::getSupportedTypes(getSupportedTypes_cb _hidl_cb) {
-    std::vector<Type> types;
-
-    for (auto const& light : mLights) {
-        types.push_back(light.first);
+    switch (it->second) {
+        case LightType::BACKLIGHT:
+            setLcdBacklight(state);
+            break;
+        case LightType::BATTERY:
+            setBatteryLight(state);
+            break;
+        case LightType::NOTIFICATIONS:
+            setNotificationLight(state);
+            break;
+        case LightType::ATTENTION:
+            setAttentionLight(state);
+            break;
+        default:
+            return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
     }
 
-    _hidl_cb(types);
-
-    return Void();
+    return ScopedAStatus::ok();
 }
 
-void Light::setAttentionLight(const LightState& state) {
+ScopedAStatus Light::getLights(std::vector<HwLight>* _aidl_return) {
+    std::vector<HwLight> lights;
+    for (const auto& [id, type] : mTypes) {
+        HwLight light;
+        light.id = id;
+        light.ordinal = 0;
+        light.type = type;
+        light.minUpdatePeriodMillis = 0;
+        lights.push_back(light);
+    }
+    *_aidl_return = lights;
+    return ScopedAStatus::ok();
+}
+
+ScopedAStatus Light::setLightEffects(
+        const std::vector<::aidl::android::hardware::light::HwLightEffect>& /*effects*/) {
+    return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+}
+
+void Light::setAttentionLight(const HwLightState& state) {
     std::lock_guard<std::mutex> lock(mLock);
     mAttentionState = state;
     setSpeakerBatteryLightLocked();
 }
 
-void Light::setLcdBacklight(const LightState& state) {
+void Light::setLcdBacklight(const HwLightState& state) {
     std::lock_guard<std::mutex> lock(mLock);
 
     uint32_t brightness = rgbToBrightness(state);
@@ -115,13 +138,13 @@ void Light::setLcdBacklight(const LightState& state) {
     mLcdBacklight.first << brightness << std::endl;
 }
 
-void Light::setBatteryLight(const LightState& state) {
+void Light::setBatteryLight(const HwLightState& state) {
     std::lock_guard<std::mutex> lock(mLock);
     mBatteryState = state;
     setSpeakerBatteryLightLocked();
 }
 
-void Light::setNotificationLight(const LightState& state) {
+void Light::setNotificationLight(const HwLightState& state) {
     std::lock_guard<std::mutex> lock(mLock);
     mNotificationState = state;
     setSpeakerBatteryLightLocked();
@@ -142,7 +165,7 @@ void Light::setSpeakerBatteryLightLocked() {
     }
 }
 
-void Light::setSpeakerLightLocked(const LightState& state) {
+void Light::setSpeakerLightLocked(const HwLightState& state) {
     int red, green, blue;
     int blink, freq, pwm;
     int onMs, offMs;
@@ -164,11 +187,11 @@ void Light::setSpeakerLightLocked(const LightState& state) {
     }
 
     switch (state.flashMode) {
-        case Flash::TIMED:
+        case FlashMode::TIMED:
             onMs = state.flashOnMs;
             offMs = state.flashOffMs;
             break;
-        case Flash::NONE:
+        case FlashMode::NONE:
         default:
             onMs = 0;
             offMs = 0;
@@ -211,8 +234,7 @@ void Light::setSpeakerLightLocked(const LightState& state) {
     mLedLock << 0 << std::endl;
 }
 
-}  // namespace implementation
-}  // namespace V2_0
 }  // namespace light
 }  // namespace hardware
 }  // namespace android
+}  // namespace aidl

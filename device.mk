@@ -202,6 +202,21 @@ PRODUCT_PACKAGES += \
 # Properties
 include $(LOCAL_PATH)/system_prop.mk
 
+# mako bring-up debug: kernel log capture to /cache (remove after bring-up)
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/zz_debug_capture.rc:$(TARGET_COPY_OUT_SYSTEM)/etc/init/zz_debug_capture.rc \
+    $(LOCAL_PATH)/debug_capture.sh:$(TARGET_COPY_OUT_SYSTEM)/bin/debug_capture.sh
+
+# mako bring-up debug: logcat capture to /data (remove after bring-up)
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/zz_debug_logcat.rc:$(TARGET_COPY_OUT_SYSTEM)/etc/init/zz_debug_logcat.rc \
+    $(LOCAL_PATH)/debug_logcat.sh:$(TARGET_COPY_OUT_SYSTEM)/bin/debug_logcat.sh
+
+# /metadata dir must exist in the system image so first-stage SwitchRoot
+# can move the mounted /metadata partition into the new root.
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/metadata.placeholder:$(TARGET_COPY_OUT_SYSTEM)/metadata/metadata.placeholder
+
 # Ramdisk
 PRODUCT_PACKAGES += \
     fstab.mako \
@@ -215,6 +230,7 @@ PRODUCT_PACKAGES += \
 
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/fstab.mako:$(TARGET_COPY_OUT_RAMDISK)/fstab.mako
+
 
 # RenderScript HAL
 PRODUCT_PACKAGES += \

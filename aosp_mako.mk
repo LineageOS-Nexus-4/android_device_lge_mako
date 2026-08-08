@@ -37,3 +37,7 @@ PRODUCT_MODEL := Nexus 4
 PRODUCT_MANUFACTURER := LGE
 
 PRODUCT_SHIPPING_API_LEVEL := 17
+
+# mako: kernel 3.4 has no EROFS support; build APEX payloads as ext4 so
+# apexd can loop-mount them (ext4+loop+offset is supported on 3.4).
+PRODUCT_DEFAULT_APEX_PAYLOAD_TYPE := ext4

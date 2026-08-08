@@ -1,3 +1,9 @@
+# mako: first boot on a 1.5GHz 2012 SoC; skip AOT compilation so dexopt
+# does not cook the device on the first boot (classes run in verify/JIT mode).
+PRODUCT_PROPERTY_OVERRIDES += \
+    dalvik.vm.dex2oat-filter=verify \
+    dalvik.vm.image-dex2oat-filter=verify
+
 # Audio
 PRODUCT_PROPERTY_OVERRIDES += \
     audio.offload.disable=1 \

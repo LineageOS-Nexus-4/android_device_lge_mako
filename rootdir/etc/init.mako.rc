@@ -22,6 +22,12 @@ on early-init
     chown system system /sys/kernel/debug/kgsl/proc
 
 on init
+    # mako bring-up: use the legacy mtp,adb config (recovery-proven path);
+    # the pure-adb config leaves the functionfs transport half-dead ("offline").
+    setprop sys.usb.config mtp,adb
+    # mako bring-up debug: start kernel-log capture from a proven-running point
+    start debug_capture
+
     # Setup custom emergency number list based on
     # the MCC. This is needed by RIL.
     setprop persist.radio.custom_ecc "1"
@@ -129,6 +135,19 @@ on post-fs
     # Allow writing to the kernel trace log.
     chmod 0222 /sys/kernel/debug/tracing/trace_marker
 
+
+# mako bring-up: derive_classpath writes classpath.tmp but its rename to
+# 'classpath' fails on this device (exits 1), so init's load_exports never
+# runs and zygote gets no BOOTCLASSPATH. Provide the file + load_exports
+# ourselves right before zygote starts.
+on zygote-start
+    exec u:r:su:s0 root root -- /system/bin/sh -c "cp /data/system/environ/classpath.tmp /data/system/environ/classpath 2>/dev/null || true"
+    load_exports /data/system/environ/classpath
+
+# mako bring-up: audioserver is disabled (legacy audio HAL incompatible with
+# AOSP 17) but zygote's onrestart keeps force-restarting it. Watchdog-stop it.
+on property:init.svc.audioserver=running
+    stop audioserver
 on post-fs-data
     write /sys/module/wcnss_ssr_8960/parameters/enable_riva_ssr 1
 
@@ -279,3 +298,12 @@ service devstart_sh /vendor/bin/init.qcom.devstart.sh
     group root system
     disabled
     oneshot
+
+
+# mako bring-up debug: capture kernel log to /cache + /metadata (survives reboots).
+# Remove once bring-up is done.
+service debug_capture /system/bin/sh /system/bin/debug_capture.sh
+    class late_start
+    user root
+    group root
+    disabled

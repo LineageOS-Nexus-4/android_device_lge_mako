@@ -1,5 +1,5 @@
 # Run init.mako.bt.sh
-allow bluetooth_loader shell_exec:file { rx_file_perms entrypoint };
+allow bluetooth_loader shell_exec:file rx_file_perms;
 allow bluetooth_loader bluetooth_loader_exec:file rx_file_perms;
 
 # init.mako.bt.sh needs /system/bin/log access

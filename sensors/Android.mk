@@ -25,6 +25,12 @@ LOCAL_PROPRIETARY_MODULE := true
 
 LOCAL_CFLAGS := -DLOG_TAG=\"sensors_wrapper\"
 
+LOCAL_C_INCLUDES := \
+    hardware/libhardware/include \
+    system/core/libcutils/include_outside_system \
+    system/core/libprocessgroup/include \
+    system/core/libsystem/include
+
 LOCAL_SRC_FILES := sensors_wrapper.cpp
 
 LOCAL_SHARED_LIBRARIES := liblog

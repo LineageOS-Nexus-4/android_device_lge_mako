@@ -36,7 +36,10 @@ TARGET_CPU_VARIANT_RUNTIME := krait
 BOARD_KERNEL_BASE := 0x80200000
 BOARD_KERNEL_IMAGE_NAME = zImage
 BOARD_KERNEL_PAGESIZE := 2048
-BOARD_KERNEL_CMDLINE := androidboot.hardware=mako
+BOARD_KERNEL_CMDLINE := androidboot.hardware=mako audit=0
+
+# p22 (spare "vendor" partition) is repurposed as the metadata partition
+BOARD_USES_METADATA_PARTITION := true
 BOARD_MKBOOTIMG_ARGS := --ramdisk_offset 0x01600000
 TARGET_KERNEL_SOURCE := kernel/lge/mako
 TARGET_KERNEL_CONFIG := lineageos_mako_defconfig
@@ -54,8 +57,12 @@ TARGET_USES_64_BIT_BINDER := true
 # mako is an A-only device; AOSP 17 defaults AB_OTA_UPDATER to true
 AB_OTA_UPDATER := false
 # AOSP 17 OTA tooling assumes recovery-as-boot; mako uses a separate recovery
-# partition, so skip OTA package generation (flashable images are the deliverable).
-TARGET_SKIP_OTA_PACKAGE := true
+# partition. OTA generation is enabled so a TWRP-flashable package is produced
+# (flashing goes through TWRP to bypass the bootloader fastboot size check).
+TARGET_SKIP_OTA_PACKAGE := false
+# Ship a full recovery image inside /system/vendor/etc so the non-A/B OTA
+# generator (HasRecoveryPatch) finds it and the package build can complete.
+BOARD_USES_FULL_RECOVERY_IMAGE := true
 
 # Security patch level
 VENDOR_SECURITY_PATCH := 2015-09-08

@@ -1,0 +1,10 @@
+on early-boot
+    chmod 664 /sys/class/leds/red/brightness
+    chmod 664 /sys/class/leds/green/brightness
+    chmod 664 /sys/class/leds/blue/brightness
+
+service vendor.lights-service.mako /vendor/bin/hw/android.hardware.lights-service.mako
+    class hal
+    user root
+    group system
+    shutdown critical
