@@ -5,8 +5,11 @@ PRODUCT_PROPERTY_OVERRIDES += \
     dalvik.vm.image-dex2oat-filter=verify
 
 # Audio
+# mako bring-up: the audioserver is disabled; never wait for its binder
+# service (each call would otherwise block 5s, tripping the Watchdog).
 PRODUCT_PROPERTY_OVERRIDES += \
     audio.offload.disable=1 \
+    audio.service.client_wait_ms=0 \
     ro.vendor.audio.sdk.fluencetype=fluence \
     persist.vendor.audio.fluence.voicecall=true \
     persist.vendor.audio.fluence.voicerec=false \
@@ -35,6 +38,7 @@ PRODUCT_PROPERTY_OVERRIDES += \
 
 # Graphics
 PRODUCT_PROPERTY_OVERRIDES += \
+    ro.hardware.egl=adreno \
     ro.opengles.version=196608 \
     persist.hwc.mdpcomp.enable=true \
     debug.hwui.use_buffer_age=false

@@ -33,9 +33,6 @@ on fs
     setprop persist.adb.nonblocking_ffs 0
     setprop ro.adb.nonblocking_ffs 0
 
-    # mako bring-up debug: capture from the earliest rc point too
-    start debug_capture
-
 # MTP
 on property:sys.usb.config=mtp
     stop adbd
@@ -60,7 +57,6 @@ on property:sys.usb.config=mtp,adb
     write /sys/class/android_usb/android0/functions mtp,adb
     write /sys/class/android_usb/android0/enable 1
     start adbd
-    start debug_capture
     setprop sys.usb.state ${sys.usb.config}
 
 # rndis
@@ -87,7 +83,6 @@ on property:sys.usb.config=rndis,adb
     write /sys/class/android_usb/android0/functions rndis,adb
     write /sys/class/android_usb/android0/enable 1
     start adbd
-    start debug_capture
     setprop sys.usb.state ${sys.usb.config}
 
 # PTP
@@ -114,5 +109,4 @@ on property:sys.usb.config=ptp,adb
     write /sys/class/android_usb/android0/functions ptp,adb
     write /sys/class/android_usb/android0/enable 1
     start adbd
-    start debug_capture
     setprop sys.usb.state ${sys.usb.config}

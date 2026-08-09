@@ -1,5 +1,5 @@
 # Lights HAL
-/vendor/bin/hw/android\.hardware\.lights-service\.mako   u:object_r:hal_light_default_exec:s0
+/(vendor|system/vendor)/bin/hw/android\.hardware\.lights-service\.mako   u:object_r:hal_light_default_exec:s0
 
 # NFC
 /dev/bcm2079x-i2c                      u:object_r:nfc_device:s0

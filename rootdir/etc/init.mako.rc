@@ -20,13 +20,36 @@ import init.mako.usb.rc
 on early-init
     mount debugfs debugfs /sys/kernel/debug
     chown system system /sys/kernel/debug/kgsl/proc
+    # kgsl-3d0 and ion are coldbooted by the first-stage ueventd (before
+    # /system mounts), so the ueventd.mako.rc rules never apply; the Adreno
+    # GSL/EGL stack needs both world-writable.
+    chmod 0666 /dev/kgsl-3d0
+    chmod 0666 /dev/ion
+    chmod 0666 /dev/msm_rotator
+    chmod 0666 /dev/smd_sns_dsps
+    # sensors.qcom (sns_pwr_boot) opens /dev/msm_dsps and /dev/smd_sns_adsp
+    # as system; ueventd leaves them 0600, so open fails with EACCES and
+    # the sensors daemon exits (sensor1_init failed with 5).
+    chmod 0666 /dev/msm_dsps
+    chmod 0666 /dev/smd_sns_adsp
+    # sensors.qcom sns_pwr_boot also opens /dev/cpu_dma_latency as system;
+    # leave it readable or the DSPS never boots and the in-process sensors
+    # HAL (sensors.mako.so inside system_server) aborts when it cannot talk
+    # to the DSPS via the sensors socket.
+    chmod 0666 /dev/cpu_dma_latency
+
+    # 3.4 kernel has cgroup v1 only; mount the hierarchies the framework
+    # init.rc expects (cpuset/cpuctl mkdirs, copies and chowns run later
+    # in the main init.rc "on init").
+    mkdir /dev/cpuctl 0770 system system
+    mount cgroup none /dev/cpuctl cpu
+    mkdir /dev/cpuset 0755 root root
+    mount cgroup none /dev/cpuset cpuset
 
 on init
     # mako bring-up: use the legacy mtp,adb config (recovery-proven path);
     # the pure-adb config leaves the functionfs transport half-dead ("offline").
     setprop sys.usb.config mtp,adb
-    # mako bring-up debug: start kernel-log capture from a proven-running point
-    start debug_capture
 
     # Setup custom emergency number list based on
     # the MCC. This is needed by RIL.
@@ -138,9 +161,9 @@ on post-fs
 
 # mako bring-up: derive_classpath writes classpath.tmp but its rename to
 # 'classpath' fails on this device (exits 1), so init's load_exports never
-# runs and zygote gets no BOOTCLASSPATH. Provide the file + load_exports
-# ourselves right before zygote starts.
-on zygote-start
+# runs and zygote gets no BOOTCLASSPATH. Provide the file + load_exports at
+# post-fs-data (MUST run before the generic 'on zygote-start' starts zygote).
+on post-fs-data
     exec u:r:su:s0 root root -- /system/bin/sh -c "cp /data/system/environ/classpath.tmp /data/system/environ/classpath 2>/dev/null || true"
     load_exports /data/system/environ/classpath
 
@@ -239,6 +262,9 @@ service kickstart /vendor/bin/qcks -i /firmware/image/ -r /data/vendor/tombstone
 service netmgrd /vendor/bin/netmgrd
     class main
     group radio system wakelock
+    # mako bring-up: blob needs libnetutils.so which AOSP 17 dropped;
+    # QMI data is not needed to reach the setup wizard.
+    disabled
 
 service sensors /vendor/bin/sensors.qcom
     class late_start
@@ -274,6 +300,9 @@ service qcamerasvr /vendor/bin/mm-qcamera-daemon
     class early_hal
     user camera
     group camera system inet input
+    # mako bring-up: the 2012 camera blob SEGVs in the linker after the
+    # text-reloc unprotect; it is not needed to reach the setup wizard.
+    disabled
 
 service wcnss-service /vendor/bin/wcnss_service
     class main
@@ -298,12 +327,3 @@ service devstart_sh /vendor/bin/init.qcom.devstart.sh
     group root system
     disabled
     oneshot
-
-
-# mako bring-up debug: capture kernel log to /cache + /metadata (survives reboots).
-# Remove once bring-up is done.
-service debug_capture /system/bin/sh /system/bin/debug_capture.sh
-    class late_start
-    user root
-    group root
-    disabled

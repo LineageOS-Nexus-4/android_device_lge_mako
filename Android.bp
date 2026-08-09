@@ -5,4 +5,3 @@ soong_namespace {
         "hardware/qcom/wlan/wcn7760/qcwcn/wpa_supplicant_8_lib",
     ],
 }
-

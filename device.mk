@@ -68,10 +68,13 @@ PRODUCT_PACKAGES += \
 PRODUCT_PACKAGES += \
     bdAddrLoader
 
-# Camera
-PRODUCT_PACKAGES += \
-    android.hardware.camera.provider@2.4-impl \
-    android.hardware.camera.provider@2.4-service
+# Camera: the mako camera HAL blob is not in the tree; the legacy
+# provider cannot find legacy/0, so the service crash-loops (exit 1)
+# and apexd tries to revert. Keep cameraserver functional-ish without
+# the provider; camera is not needed for the setup wizard.
+# PRODUCT_PACKAGES += \
+#     android.hardware.camera.provider@2.4-impl \
+#     android.hardware.camera.provider@2.4-service
 
 # Charger
 PRODUCT_PACKAGES += \
@@ -101,10 +104,6 @@ PRODUCT_PACKAGES += \
 
 # GPS (deferred: requires external/gps.utils + libloc repos not in this tree)
 
-# GNSS HAL
-PRODUCT_PACKAGES += \
-    android.hardware.gnss@1.0-impl \
-    android.hardware.gnss@1.0-service
 
 # Health
 PRODUCT_PACKAGES += \
@@ -202,16 +201,6 @@ PRODUCT_PACKAGES += \
 # Properties
 include $(LOCAL_PATH)/system_prop.mk
 
-# mako bring-up debug: kernel log capture to /cache (remove after bring-up)
-PRODUCT_COPY_FILES += \
-    $(LOCAL_PATH)/zz_debug_capture.rc:$(TARGET_COPY_OUT_SYSTEM)/etc/init/zz_debug_capture.rc \
-    $(LOCAL_PATH)/debug_capture.sh:$(TARGET_COPY_OUT_SYSTEM)/bin/debug_capture.sh
-
-# mako bring-up debug: logcat capture to /data (remove after bring-up)
-PRODUCT_COPY_FILES += \
-    $(LOCAL_PATH)/zz_debug_logcat.rc:$(TARGET_COPY_OUT_SYSTEM)/etc/init/zz_debug_logcat.rc \
-    $(LOCAL_PATH)/debug_logcat.sh:$(TARGET_COPY_OUT_SYSTEM)/bin/debug_logcat.sh
-
 # /metadata dir must exist in the system image so first-stage SwitchRoot
 # can move the mounted /metadata partition into the new root.
 PRODUCT_COPY_FILES += \
@@ -230,6 +219,12 @@ PRODUCT_PACKAGES += \
 
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/fstab.mako:$(TARGET_COPY_OUT_RAMDISK)/fstab.mako
+
+# mako bring-up: legacy vendor blobs (qseecomd via libQSEEComAPI.so) declare a
+# DT_NEEDED on libstdc++.so, which AOSP 17 dropped; shim provides the unwind
+# helpers those blobs actually import.
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/prebuilt/libstdc++.so:$(TARGET_COPY_OUT_SYSTEM)/vendor/lib/libstdc++.so
 
 
 # RenderScript HAL
@@ -257,9 +252,10 @@ PRODUCT_PACKAGES += \
 PRODUCT_PACKAGES += \
     android.hardware.usb@1.0-service
 
-# WCNSS (firmware loader deferred: needs qcom proprietary wcnss_service)
+# WCNSS firmware loader (built from qcwcn wcnss-service source, non-QMI)
 PRODUCT_PACKAGES += \
-    libwcnss_qmi
+    libwcnss_qmi \
+    wcnss_service
 
 # Wi-Fi (HAL service deferred until android.hardware.wifi@1.0-service.legacy is vendored)
 PRODUCT_PACKAGES += \
