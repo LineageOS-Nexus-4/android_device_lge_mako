@@ -252,10 +252,9 @@ PRODUCT_PACKAGES += \
 PRODUCT_PACKAGES += \
     android.hardware.usb@1.0-service
 
-# WCNSS firmware loader (built from qcwcn wcnss-service source, non-QMI)
+# WCNSS (firmware loader deferred: needs qcom proprietary wcnss_service)
 PRODUCT_PACKAGES += \
-    libwcnss_qmi \
-    wcnss_service
+    libwcnss_qmi
 
 # Wi-Fi (HAL service deferred until android.hardware.wifi@1.0-service.legacy is vendored)
 PRODUCT_PACKAGES += \
