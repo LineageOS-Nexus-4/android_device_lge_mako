@@ -1,0 +1,18 @@
+LOCAL_PATH := $(call my-dir)
+include $(CLEAR_VARS)
+LOCAL_MODULE := nltest
+LOCAL_SRC_FILES := nltest.c
+LOCAL_CFLAGS += -Wall
+LOCAL_MULTILIB := 32
+include $(BUILD_EXECUTABLE)
+include $(CLEAR_VARS)
+LOCAL_MODULE := rtest
+LOCAL_SRC_FILES := rtest.c
+LOCAL_CFLAGS += -Wall
+LOCAL_MULTILIB := 32
+include $(BUILD_EXECUTABLE)
+include $(CLEAR_VARS)
+LOCAL_MODULE := nldump
+LOCAL_SRC_FILES := nldump.c
+LOCAL_MULTILIB := 32
+include $(BUILD_EXECUTABLE)
