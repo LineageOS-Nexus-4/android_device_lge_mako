@@ -169,15 +169,6 @@
             <instance>default</instance>
         </interface>
     </hal>
-    <hal format="hidl">
-        <name>android.hardware.vibrator</name>
-        <transport>hwbinder</transport>
-        <version>1.0</version>
-        <interface>
-            <name>IVibrator</name>
-            <instance>default</instance>
-        </interface>
-    </hal>
     <!-- IWifi is declared by the com.android.hardware.wifi APEX vintf
          fragment (android.hardware.wifi-service.xml); IHostapd by the
          hostapd module's own fragment (android.hardware.wifi.hostapd.xml

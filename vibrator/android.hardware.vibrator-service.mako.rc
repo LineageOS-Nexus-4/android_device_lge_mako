@@ -1,0 +1,6 @@
+service vendor.mako-vibrator /vendor/bin/hw/android.hardware.vibrator-service.mako
+    interface aidl android.hardware.vibrator.IVibrator/default
+    interface aidl android.hardware.vibrator.IVibratorManager/default
+    class hal
+    user system
+    group system

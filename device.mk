@@ -252,6 +252,11 @@ PRODUCT_PACKAGES += \
 PRODUCT_PACKAGES += \
     android.hardware.usb@1.0-service
 
+# Vibrator: minimal AIDL HAL driving /sys/class/timed_output/vibrator
+# (android-vibrator kernel driver: GPIO + PWM + regulator on mako).
+PRODUCT_PACKAGES += \
+    android.hardware.vibrator-service.mako
+
 # WCNSS firmware loader (built from hardware/qcom/wlan/legacy/qcwcn/
 # wcnss-service in non-QMI mode; loads wcnss.mdt into the carveout via
 # /dev/wcnss_ctrl, then the built-in prima driver brings up wlan0).

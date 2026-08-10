@@ -1,0 +1,48 @@
+package {
+    // See: http://go/android-license-faq
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
+mako_vibrator_libs = [
+    "libbase",
+    "libbinder_ndk",
+    "libfmq",
+    "libutils",
+    "libcutils",
+    "android.hardware.vibrator-V4-ndk",
+    "android.hardware.common-V2-ndk",
+    "android.hardware.common.fmq-V1-ndk",
+    "android.media.audio.common.types-V5-ndk",
+]
+
+cc_library_static {
+    name: "libmakovibratorimpl",
+    vendor: true,
+    shared_libs: mako_vibrator_libs,
+    export_include_dirs: ["include"],
+    srcs: [
+        "VibrationSession.cpp",
+        "Vibrator.cpp",
+        "VibratorManager.cpp",
+    ],
+}
+
+prebuilt_etc {
+    name: "android.hardware.vibrator.mako.xml",
+    src: "android.hardware.vibrator.mako.xml",
+    sub_dir: "vintf",
+    installable: false,
+}
+
+cc_binary {
+    name: "android.hardware.vibrator-service.mako",
+    relative_install_path: "hw",
+    init_rc: ["android.hardware.vibrator-service.mako.rc"],
+    vintf_fragments: ["android.hardware.vibrator.mako.xml"],
+    vendor: true,
+    shared_libs: mako_vibrator_libs,
+    static_libs: [
+        "libmakovibratorimpl",
+    ],
+    srcs: ["main.cpp"],
+}
