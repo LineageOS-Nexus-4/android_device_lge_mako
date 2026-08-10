@@ -153,7 +153,7 @@ PRODUCT_CHARACTERISTICS := nosdcard
 # PRODUCT_PACKAGES += \
 #     android.hardware.nfc@1.0-impl-bcm \
 #     android.hardware.nfc@1.0-service \
-#     nfc_nci.bcm2079x.default \
+#     nfc_nci.default \
 #     NfcNci \
 #     Tag
 #
@@ -256,6 +256,16 @@ PRODUCT_PACKAGES += \
 # (android-vibrator kernel driver: GPIO + PWM + regulator on mako).
 PRODUCT_PACKAGES += \
     android.hardware.vibrator-service.mako
+
+# NFC: BCM2079x NCI HAL (hardware/broadcom/nfc) behind the HIDL 1.0
+# service (android.hardware.nfc@1.0-service loads nfc_nci.default via
+# hw_get_module; NfcAdaptation falls back 1.2/1.1/1.0 -> AIDL).
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/nfc/libnfc-nci.conf:$(TARGET_COPY_OUT_VENDOR)/etc/libnfc-nci.conf
+PRODUCT_PACKAGES += \
+    nfc_nci.default \
+    android.hardware.nfc@1.0-impl \
+    android.hardware.nfc@1.0-service
 
 # WCNSS firmware loader (built from hardware/qcom/wlan/legacy/qcwcn/
 # wcnss-service in non-QMI mode; loads wcnss.mdt into the carveout via
