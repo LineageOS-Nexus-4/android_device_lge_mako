@@ -178,4 +178,16 @@
             <instance>default</instance>
         </interface>
     </hal>
+    <!-- IWifi is declared by the com.android.hardware.wifi APEX vintf
+         fragment (android.hardware.wifi-service.xml); IHostapd by the
+         hostapd module's own fragment (android.hardware.wifi.hostapd.xml
+         -> /vendor/etc/vintf/manifest/). Adding them here duplicates the
+         declaration and fails check_vintf_all. Only the mainline
+         supplicant (com.android.wifi APEX, no fragment) is declared
+         device-side. -->
+    <hal format="aidl">
+        <name>android.hardware.wifi.supplicant</name>
+        <version>3</version>
+        <fqname>ISupplicant/wifi_mainline_supplicant</fqname>
+    </hal>
 </manifest>

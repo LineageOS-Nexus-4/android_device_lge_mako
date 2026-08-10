@@ -252,12 +252,20 @@ PRODUCT_PACKAGES += \
 PRODUCT_PACKAGES += \
     android.hardware.usb@1.0-service
 
-# WCNSS (firmware loader deferred: needs qcom proprietary wcnss_service)
+# WCNSS firmware loader (built from hardware/qcom/wlan/legacy/qcwcn/
+# wcnss-service in non-QMI mode; loads wcnss.mdt into the carveout via
+# /dev/wcnss_ctrl, then the built-in prima driver brings up wlan0).
 PRODUCT_PACKAGES += \
+    wcnss_service \
     libwcnss_qmi
 
-# Wi-Fi (HAL service deferred until android.hardware.wifi@1.0-service.legacy is vendored)
+# Wi-Fi: HAL service (com.android.hardware.wifi APEX), vendor hostapd
+# (hosts IHostapd AIDL) and libwifi-hal-qcom (qcwcn vendor impl, pulled in
+# by libwifi-hal). The supplicant comes from the com.android.wifi APEX
+# (wpa_supplicant_mainline, instance wifi_mainline_supplicant); the vendor
+# wpa_supplicant is not used on AOSP 17.
 PRODUCT_PACKAGES += \
+    com.android.hardware.wifi \
     libwpa_client \
     hostapd \
     wificond \
@@ -267,8 +275,15 @@ PRODUCT_PACKAGES += \
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/wifi/WCNSS_cfg.dat:$(TARGET_COPY_OUT_VENDOR)/firmware/wlan/prima/WCNSS_cfg.dat \
     $(LOCAL_PATH)/wifi/WCNSS_qcom_cfg.ini:$(TARGET_COPY_OUT_VENDOR)/firmware/wlan/prima/WCNSS_qcom_cfg.ini \
-    $(LOCAL_PATH)/wifi/WCNSS_qcom_wlan_nv.bin:$(TARGET_COPY_OUT_VENDOR)/firmware/wlan/prima/WCNSS_qcom_wlan_nv.bin
-
-PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/wifi/WCNSS_qcom_wlan_nv.bin:$(TARGET_COPY_OUT_VENDOR)/firmware/wlan/prima/WCNSS_qcom_wlan_nv.bin \
+    $(LOCAL_PATH)/wifi/WCNSS_qcom_cfg.ini:$(TARGET_COPY_OUT_VENDOR)/etc/wifi/WCNSS_qcom_cfg.ini \
     $(LOCAL_PATH)/wifi/wpa_supplicant_overlay.conf:$(TARGET_COPY_OUT_VENDOR)/etc/wifi/wpa_supplicant_overlay.conf \
-    $(LOCAL_PATH)/wifi/p2p_supplicant_overlay.conf:$(TARGET_COPY_OUT_VENDOR)/etc/wifi/p2p_supplicant_overlay.conf
+    $(LOCAL_PATH)/wifi/p2p_supplicant_overlay.conf:$(TARGET_COPY_OUT_VENDOR)/etc/wifi/p2p_supplicant_overlay.conf \
+    $(LOCAL_PATH)/wifi/wpa_supplicant_mainline_overlay.conf:$(TARGET_COPY_OUT_SYSTEM_EXT)/etc/wifi/wpa_supplicant_mainline_overlay.conf
+
+# ueventd rules: AOSP 17 ueventd only reads /system/etc/ueventd.rc and
+# /vendor/etc/ueventd.rc; the root /ueventd.mako.rc (legacy lineage path)
+# is never parsed, so wcnss/peripheral nodes stay root:root 0600 and the
+# system-user services cannot open them.
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/rootdir/etc/ueventd.mako.rc:$(TARGET_COPY_OUT_VENDOR)/etc/ueventd.rc
