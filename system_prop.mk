@@ -45,7 +45,7 @@ PRODUCT_PROPERTY_OVERRIDES += \
 
 # Media
 PRODUCT_PROPERTY_OVERRIDES += \
-    debug.stagefright.ccodec=0 \
+    debug.stagefright.ccodec=4 \
     ro.config.media_vol_steps=25 \
     ro.config.vc_call_vol_steps=7 \
     media.aac_51_output_enabled=true \
@@ -54,7 +54,7 @@ PRODUCT_PROPERTY_OVERRIDES += \
 
 # RIL
 PRODUCT_PROPERTY_OVERRIDES += \
-    rild.libpath=/vendor/lib/libril-qc-qmi-1.so \
+    vendor.rild.libpath=/vendor/lib/libril-qc-qmi-1.so \
     telephony.lteOnCdmaDevice=0 \
     persist.radio.apm_sim_not_pwdn=1 \
     ro.telephony.call_ring.multiple=0

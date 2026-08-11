@@ -29,3 +29,16 @@ LOCAL_C_INCLUDES += \
 LOCAL_CFLAGS += -Wno-unused-variable
 LOCAL_MULTILIB := 32
 include $(BUILD_EXECUTABLE)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := arecord
+LOCAL_SRC_FILES := arecord.cpp
+LOCAL_SHARED_LIBRARIES := libaudioclient libcutils libutils liblog libbinder libbinder_ndk
+LOCAL_STATIC_LIBRARIES := framework-permission-aidl-cpp
+LOCAL_C_INCLUDES += \
+    $(TOP_DIR)frameworks/av/media/libaudioclient/include \
+    $(TOP_DIR)frameworks/av/media/libaudiofoundation/include \
+    $(TOP_DIR)frameworks/av/media/libmedia/include
+LOCAL_CFLAGS += -Wno-unused-variable
+LOCAL_MULTILIB := 32
+include $(BUILD_EXECUTABLE)

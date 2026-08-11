@@ -23,7 +23,7 @@ int main() {
 
     sp<AudioTrack> track = new AudioTrack();
 
-    status_t st = track->set(AUDIO_STREAM_MUSIC,
+    status_t st = track->set(AUDIO_STREAM_RING,
                              rate,
                              AUDIO_FORMAT_PCM_16_BIT,
                              AUDIO_CHANNEL_OUT_STEREO,
