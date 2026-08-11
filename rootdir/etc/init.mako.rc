@@ -167,10 +167,9 @@ on post-fs-data
     exec u:r:su:s0 root root -- /system/bin/sh -c "cp /data/system/environ/classpath.tmp /data/system/environ/classpath 2>/dev/null || true"
     load_exports /data/system/environ/classpath
 
-# mako bring-up: audioserver is disabled (legacy audio HAL incompatible with
-# AOSP 17) but zygote's onrestart keeps force-restarting it. Watchdog-stop it.
-on property:init.svc.audioserver=running
-    stop audioserver
+# mako bring-up: the audioserver watchdog-stop was needed while the legacy
+# 2.0 audio HAL could not feed AOSP 17; the multi-version impl (7.1/7.0)
+# now provides a usable factory, so the server is allowed to run.
 on post-fs-data
     write /sys/module/wcnss_ssr_8960/parameters/enable_riva_ssr 1
 
