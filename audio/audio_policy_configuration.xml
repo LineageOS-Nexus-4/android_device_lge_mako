@@ -27,11 +27,11 @@
                     <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
                              samplingRates="44100,48000" channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
                 </mixPort>
-                <mixPort name="deep_buffer" role="source" flags="AUDIO_OUTPUT_FLAG_DEEP_BUFFER">
-                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
-                             samplingRates="8000,11025,12000,16000,22050,24000,32000,44100,48000"
-                             channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
-                </mixPort>
+                <!-- mako bring-up: the deep-buffer HAL path (MultiMedia1) does
+                     not produce sound (PCM FIFO underruns, mixer control
+                     "Playback 0 Volume" missing on the WCD9310). Removing
+                     the deep-buffer output makes all streams use the
+                     working low-latency primary path. -->
                 <mixPort name="primary input" role="sink">
                     <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
                              samplingRates="8000,11025,12000,16000,22050,24000,32000,44100,48000"
@@ -66,15 +66,15 @@
             </devicePorts>
             <routes>
                 <route type="mix" sink="Earpiece"
-                       sources="primary output,deep_buffer"/>
+                       sources="primary output"/>
                 <route type="mix" sink="Speaker"
-                       sources="primary output,deep_buffer"/>
+                       sources="primary output"/>
                 <route type="mix" sink="Wired Headset"
-                       sources="primary output,deep_buffer"/>
+                       sources="primary output"/>
                 <route type="mix" sink="Wired Headphones"
-                       sources="primary output,deep_buffer"/>
+                       sources="primary output"/>
                 <route type="mix" sink="BT SCO"
-                       sources="primary output,deep_buffer"/>
+                       sources="primary output"/>
                 <route type="mix" sink="BT SCO Headset"
                        sources="primary output,deep_buffer"/>
                 <route type="mix" sink="BT SCO Car Kit"
