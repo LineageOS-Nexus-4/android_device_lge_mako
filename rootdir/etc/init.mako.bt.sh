@@ -32,7 +32,10 @@ logi "Transport : $TRANSPORT"
 logi "DUTADDR : $DUTADDR"
 
 #load bd addr
-if [$DUTADDR == ""]
+# mako bring-up: fixed the [ ... ] comparisons (missing spaces made them
+# syntax errors, so the -b argument was never passed to hci_qcomm_init
+# and the BD_ADDR read from NV failed).
+if [ "$DUTADDR" == "" ]
 then
 BDADDR=`/vendor/bin/bdAddrLoader -f /persist/bluetooth/.bdaddr -h -x`
 else
@@ -55,7 +58,7 @@ case $POWER_CLASS in
      logi "Power Class: To override, Before turning BT ON; setprop qcom.bt.dev_power_class <1 or 2 or 3>";;
 esac
 
-if [$BDADDR == ""]
+if [ "$BDADDR" == "" ]
 then
 /vendor/bin/hci_qcomm_init -e $PWR_CLASS -vv
 else

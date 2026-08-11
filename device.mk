@@ -252,6 +252,15 @@ PRODUCT_PACKAGES += \
 PRODUCT_PACKAGES += \
     android.hardware.usb@1.0-service
 
+# Bluetooth: BCM/WCN3660 via SMD (ro.qualcomm.bt.hci_transport=smd,
+# /dev/smd3). libbt-vendor from hardware/qcom/bt (msm8960); HAL from
+# hardware/interfaces/bluetooth/1.0; bdAddrLoader from the device tree.
+PRODUCT_PACKAGES += \
+    libbt-vendor \
+    android.hardware.bluetooth@1.0-impl \
+    android.hardware.bluetooth@1.0-service \
+    bdAddrLoader
+
 # Vibrator: minimal AIDL HAL driving /sys/class/timed_output/vibrator
 # (android-vibrator kernel driver: GPIO + PWM + regulator on mako).
 PRODUCT_PACKAGES += \
