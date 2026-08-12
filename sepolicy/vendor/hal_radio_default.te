@@ -1,0 +1,6 @@
+# mako radio shim: client of rild's HIDL IRadio service (the shim binds the
+# V1.1 IRadio registered in-process by rild) and registers the AIDL radio
+# services with vndservicemanager.
+hal_client_domain(hal_radio_default, hal_telephony)
+allow hal_radio_default vndbinder_device:chr_file rw_file_perms;
+binder_call(hal_radio_default, vndservicemanager)

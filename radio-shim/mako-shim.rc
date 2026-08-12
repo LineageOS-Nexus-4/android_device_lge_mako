@@ -1,0 +1,6 @@
+service vendor.radio-mako-shim /vendor/bin/hw/android.hardware.radio-service.mako-shim
+    class hal
+    user radio
+    group radio system
+    capabilities BLOCK_SUSPEND NET_ADMIN NET_RAW
+    seclabel u:r:hal_radio_default:s0

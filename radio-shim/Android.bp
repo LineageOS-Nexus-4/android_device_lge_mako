@@ -1,0 +1,48 @@
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
+// Vendor-native AIDL radio HAL shim for the Nexus 4 (mako).
+// Publishes the AIDL radio services the AOSP 17 framework expects and
+// translates every request to the V1.1 HIDL IRadio registered by rild.
+cc_binary {
+    name: "android.hardware.radio-service.mako-shim",
+    relative_install_path: "hw",
+    init_rc: ["mako-shim.rc"],
+    vintf_fragments: ["mako-shim.xml"],
+    vendor: true,
+    cflags: [
+        "-Wall",
+        "-Wextra",
+    ],
+    shared_libs: [
+        "android.hardware.radio.config-V5-ndk",
+        "android.hardware.radio.data-V5-ndk",
+        "android.hardware.radio.messaging-V5-ndk",
+        "android.hardware.radio.modem-V5-ndk",
+        "android.hardware.radio.network-V5-ndk",
+        "android.hardware.radio.sim-V5-ndk",
+        "android.hardware.radio.voice-V5-ndk",
+        "android.hardware.radio@1.0",
+        "android.hardware.radio@1.1",
+        "libbase",
+        "libbinder_ndk",
+        "libhidlbase",
+        "liblog",
+        "libutils",
+    ],
+    srcs: [
+        "IndicationHandler.cpp",
+        "RadioConfig.cpp",
+        "RadioData.cpp",
+        "RadioMessaging.cpp",
+        "RadioModem.cpp",
+        "RadioNetwork.cpp",
+        "RadioSim.cpp",
+        "RadioVoice.cpp",
+        "ResponseHandler.cpp",
+        "service.cpp",
+        "ShimContext.cpp",
+        "Structs.cpp",
+    ],
+}
