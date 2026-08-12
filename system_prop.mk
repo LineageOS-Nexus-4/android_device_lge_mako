@@ -68,8 +68,3 @@ PRODUCT_PROPERTY_OVERRIDES += \
 PRODUCT_PROPERTY_OVERRIDES += \
     wifi.interface=wlan0
 
-# mako: default the preferred network mode to WCDMA-only (3G). The settings
-# app's "Enable 2G" controller re-applies RILConstants.PREFERRED_NETWORK_MODE
-# whenever its state is empty, which would otherwise reset the user's 3G
-# selection back to GSM+WCDMA auto (EDGE camping).
-PRODUCT_PROPERTY_OVERRIDES += ro.telephony.default_network=2

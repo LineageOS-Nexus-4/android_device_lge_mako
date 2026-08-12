@@ -205,14 +205,26 @@ ar::network::OperatorInfo toAidl(const R10::OperatorInfo& op) {
     return out;
 }
 
-// PreferredNetworkType -> RadioAccessFamily bitmap (GSM family 0xE,
-// WCDMA family 0x1F0, LTE 0x2000).
+// The framework's network type bitmask uses TelephonyManager.NETWORK_TYPE
+// values shifted by one (NETWORK_TYPE_BITMASK_X = 1 << (NETWORK_TYPE_X - 1)):
+//   GPRS=1, EDGE=2, UMTS=4, HSDPA=128, HSUPA=256, HSPA=512, HSPAP=16384,
+//   GSM=32768, LTE=4096, NR=524288
+// so the GSM family is 0x8003 and the WCDMA family is 0x4384.
+// The AIDL radio interfaces express the allowed network types as a bitmask
+// of the RadioTechnology values (bit T = 1 << T):
+//   GPRS=1->0x2, EDGE=2->0x4, UMTS=3->0x8, HSDPA=9->0x200, HSUPA=10->0x400,
+//   HSPA=11->0x800, LTE=14->0x4000, HSPAP=15->0x8000, GSM=16->0x10000
+// so the GSM family is 0x10006 and the WCDMA family is 0x8A08.
+namespace {
+constexpr int32_t kGsm = 0x10006;
+constexpr int32_t kWcdma = 0x8A08;
+constexpr int32_t kLte = 0x4000;
+constexpr int32_t kGsmWcdma = kGsm | kWcdma;
+constexpr int32_t kGsmWcdmaLte = kGsmWcdma | kLte;
+}  // namespace
+
+// PreferredNetworkType -> network type bitmap.
 int32_t toAidlAllowedNetworkTypesBitmap(int32_t preferredNetworkType) {
-    constexpr int32_t kGsm = 0x000E;
-    constexpr int32_t kWcdma = 0x01F0;
-    constexpr int32_t kLte = 0x2000;
-    constexpr int32_t kGsmWcdma = kGsm | kWcdma;
-    constexpr int32_t kGsmWcdmaLte = kGsmWcdma | kLte;
     switch (static_cast<R10::PreferredNetworkType>(preferredNetworkType)) {
         case R10::PreferredNetworkType::GSM_ONLY:
             return kGsm;
@@ -232,9 +244,6 @@ int32_t toAidlAllowedNetworkTypesBitmap(int32_t preferredNetworkType) {
 }
 
 int32_t toHidlPreferredNetworkType(int32_t networkTypeBitmap) {
-    constexpr int32_t kGsm = 0x000E;
-    constexpr int32_t kWcdma = 0x01F0;
-    constexpr int32_t kLte = 0x2000;
     const int32_t gsm = networkTypeBitmap & kGsm;
     const int32_t wcdma = networkTypeBitmap & kWcdma;
     const int32_t lte = networkTypeBitmap & kLte;

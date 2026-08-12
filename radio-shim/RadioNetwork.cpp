@@ -122,6 +122,9 @@ ScopedAStatus RadioNetwork::getAllowedNetworkTypesBitmap(int32_t serial) {
 
 ScopedAStatus RadioNetwork::setAllowedNetworkTypesBitmap(int32_t serial,
                                                          int32_t networkTypeBitmap) {
+    LOG(INFO) << "setAllowedNetworkTypesBitmap serial=" << serial
+              << " bitmap=0x" << std::hex << networkTypeBitmap << std::dec
+              << " -> preferred=" << toHidlPreferredNetworkType(networkTypeBitmap);
     if (!mCtx->radio) return ScopedAStatus::ok();
     mCtx->registerRequest(serial, RequestKind::NET_SET_PREFERRED_NETWORK_TYPE);
     const auto status = mCtx->radio->setPreferredNetworkType(
