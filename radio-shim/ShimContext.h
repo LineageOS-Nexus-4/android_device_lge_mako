@@ -179,6 +179,9 @@ class ShimContext {
     void setIccId(const std::string& iccid);
     // Kicks off an asynchronous EF-ICCID read (two iccIOForApp requests).
     void refreshIccId();
+    // Retries the EF-ICCID read after a delay; the mako qcril occasionally
+    // returns empty responses so the read must be retried.
+    void scheduleIccIdRetry();
     // Serial for shim-internal HIDL requests (kept far above the framework
     // serial space so it can never collide).
     int32_t nextInternalSerial();
@@ -204,6 +207,7 @@ class ShimContext {
     std::mutex mMutex;
     std::unordered_map<int32_t, RequestKind> mSerialToKind;
     std::string mIccId;
+    int32_t mIccIdRetries = 0;
     int32_t mNextInternalSerial = 0x40000000;
 };
 

@@ -3,6 +3,7 @@
 #include <android-base/logging.h>
 
 #include <algorithm>
+#include <thread>
 
 namespace android::hardware::radio::shim {
 
@@ -55,6 +56,19 @@ int32_t ShimContext::nextInternalSerial() {
     std::lock_guard<std::mutex> lock(mMutex);
     if (mNextInternalSerial >= 0x7F000000) mNextInternalSerial = 0x40000000;
     return mNextInternalSerial++;
+}
+
+void ShimContext::scheduleIccIdRetry() {
+    {
+        std::lock_guard<std::mutex> lock(mMutex);
+        if (!mIccId.empty()) return;
+        if (mIccIdRetries >= 8) return;
+        mIccIdRetries++;
+    }
+    std::thread([this]() {
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        refreshIccId();
+    }).detach();
 }
 
 void ShimContext::refreshIccId() {

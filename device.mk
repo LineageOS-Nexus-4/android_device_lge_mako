@@ -65,7 +65,8 @@ PRODUCT_COPY_FILES += \
 
 # Radio HAL shim: AIDL radio services translating to the V1.1 HIDL IRadio
 PRODUCT_PACKAGES += \
-    android.hardware.radio-service.mako-shim
+    android.hardware.radio-service.mako-shim \
+    libnetutils.vendor
 
 
 # Bluetooth

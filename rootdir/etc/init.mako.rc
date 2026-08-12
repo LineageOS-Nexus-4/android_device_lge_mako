@@ -261,9 +261,6 @@ service kickstart /vendor/bin/qcks -i /firmware/image/ -r /data/vendor/tombstone
 service netmgrd /vendor/bin/netmgrd
     class main
     group radio system wakelock
-    # mako bring-up: blob needs libnetutils.so which AOSP 17 dropped;
-    # QMI data is not needed to reach the setup wizard.
-    disabled
 
 service sensors /vendor/bin/sensors.qcom
     class late_start
@@ -277,6 +274,11 @@ on property:ro.data.large_tcp_window_size=true
 on property:sys.boot_completed=1
     # Enable ZRAM once boot is completed
     swapon_all /vendor/etc/fstab.mako
+    # mako: netd flushes the kernel-default "from all lookup main" rule at
+    # startup and does not restore it; without it the kernel rejects the
+    # data-call default route's gateway ("Network is unreachable") and
+    # mobile data has no connectivity even though the PDP is established.
+    exec u:r:netd:s0 -- /system/bin/ip rule add pref 25000 lookup main
 
 service charger /system/bin/charger
     class charger

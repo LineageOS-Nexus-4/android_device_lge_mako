@@ -256,13 +256,24 @@ Return<void> ResponseHandler::iccIOForAppResponse(const R10::RadioResponseInfo& 
             }
         } else {
             LOG(WARNING) << "internal EF-ICCID GET_RESPONSE failed: " << hex;
+            mCtx->scheduleIccIdRetry();
         }
         return Void();
     }
     if (kind == RequestKind::SIM_INTERNAL_READ_ICCID_DATA) {
-        if (iccIo.sw1 == 0x90 && iccIo.sw2 == 0x00) {
+        if (iccIo.sw1 == 0x90 && iccIo.sw2 == 0x00 && !iccIo.simResponse.empty()) {
             mCtx->setIccId(bcdToString(iccIo.simResponse));
             LOG(INFO) << "EF-ICCID read: " << mCtx->getIccId();
+            // Nudge the framework to re-poll getIccCardStatus so the freshly
+            // read ICCID reaches UiccSlot and the subscription mapping.
+            if (mCtx->simIndication) {
+                mCtx->simIndication->simStatusChanged(
+                        ar::RadioIndicationType::UNSOLICITED);
+            }
+        } else {
+            LOG(WARNING) << "internal EF-ICCID READ failed: sw=" << iccIo.sw1 << "/"
+                         << iccIo.sw2 << " len=" << iccIo.simResponse.size();
+            mCtx->scheduleIccIdRetry();
         }
         return Void();
     }
@@ -1175,9 +1186,14 @@ Return<void> ResponseHandler::setupDataCallResponse(const R10::RadioResponseInfo
                                                     const R10::SetupDataCallResult& dcResponse) {
     const auto kind = mCtx->popRequest(info.serial);
     if (kind != RequestKind::DATA_SETUP_DATA_CALL) return drop(__func__, info, kind), Void();
+    const auto aidlResult = toAidl(dcResponse);
+    LOG(INFO) << "setupDataCallResponse serial=" << info.serial
+              << " error=" << static_cast<int32_t>(info.error)
+              << " status=" << static_cast<int32_t>(dcResponse.status)
+              << " cid=" << dcResponse.cid << " active=" << dcResponse.active
+              << " ifname=" << dcResponse.ifname << " type=" << dcResponse.type;
     if (mCtx->dataResponse) {
-        callStatus(__func__,
-                   mCtx->dataResponse->setupDataCallResponse(toAidl(info), toAidl(dcResponse)));
+        callStatus(__func__, mCtx->dataResponse->setupDataCallResponse(toAidl(info), aidlResult));
     }
     return Void();
 }

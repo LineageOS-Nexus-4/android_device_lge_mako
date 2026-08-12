@@ -45,6 +45,9 @@ ScopedAStatus RadioData::setupDataCall(int32_t serial, ar::AccessNetwork accessN
                                        const std::vector<std::string>&, int32_t,
                                        const std::optional<ar::data::SliceInfo>&, bool) {
     if (!mCtx->radio) return ScopedAStatus::ok();
+    LOG(INFO) << "setupDataCall serial=" << serial << " apn=" << dataProfileInfo.apn
+              << " accessNetwork=" << static_cast<int32_t>(accessNetwork)
+              << " roamingAllowed=" << roamingAllowed;
     mCtx->registerRequest(serial, RequestKind::DATA_SETUP_DATA_CALL);
     // V1.1 ignores the reason and the pduSessionId; roamingAllowed is
     // forwarded as the V1.0 "isRoaming" flag.
@@ -59,6 +62,7 @@ ScopedAStatus RadioData::setupDataCall(int32_t serial, ar::AccessNetwork accessN
 
 ScopedAStatus RadioData::deactivateDataCall(int32_t serial, int32_t cid,
                                             ar::data::DataRequestReason reason) {
+    LOG(INFO) << "RadioData::deactivateDataCall ENTER serial=" << serial << " cid=" << cid;
     if (!mCtx->radio) return ScopedAStatus::ok();
     mCtx->registerRequest(serial, RequestKind::DATA_DEACTIVATE_DATA_CALL);
     const auto status = mCtx->radio->deactivateDataCall(serial, cid,
@@ -71,6 +75,7 @@ ScopedAStatus RadioData::deactivateDataCall(int32_t serial, int32_t cid,
 }
 
 ScopedAStatus RadioData::getDataCallList(int32_t serial) {
+    LOG(INFO) << "RadioData::getDataCallList ENTER serial=" << serial;
     if (!mCtx->radio) return ScopedAStatus::ok();
     mCtx->registerRequest(serial, RequestKind::DATA_GET_DATA_CALL_LIST);
     const auto status = mCtx->radio->getDataCallList(serial);
@@ -83,6 +88,7 @@ ScopedAStatus RadioData::getDataCallList(int32_t serial) {
 
 ScopedAStatus RadioData::setInitialAttachApn(
         int32_t serial, const std::optional<ar::data::DataProfileInfo>& dataProfileInfo) {
+    LOG(INFO) << "RadioData::setInitialAttachApn ENTER serial=" << serial;
     if (!mCtx->radio) return ScopedAStatus::ok();
     mCtx->registerRequest(serial, RequestKind::DATA_SET_INITIAL_ATTACH_APN);
     R10::DataProfileInfo hidl;
@@ -109,6 +115,7 @@ ScopedAStatus RadioData::setInitialAttachApn(
 }
 
 ScopedAStatus RadioData::setDataAllowed(int32_t serial, bool allow) {
+    LOG(INFO) << "RadioData::setDataAllowed ENTER serial=" << serial << " allow=" << allow;
     if (!mCtx->radio) return ScopedAStatus::ok();
     mCtx->registerRequest(serial, RequestKind::DATA_SET_DATA_ALLOWED);
     const auto status = mCtx->radio->setDataAllowed(serial, allow);
@@ -121,6 +128,7 @@ ScopedAStatus RadioData::setDataAllowed(int32_t serial, bool allow) {
 
 ScopedAStatus RadioData::setDataProfile(int32_t serial,
                                         const std::vector<ar::data::DataProfileInfo>& profiles) {
+    LOG(INFO) << "RadioData::setDataProfile ENTER serial=" << serial;
     if (!mCtx->radio) return ScopedAStatus::ok();
     mCtx->registerRequest(serial, RequestKind::DATA_SET_DATA_PROFILE);
     std::vector<R10::DataProfileInfo> hidl;

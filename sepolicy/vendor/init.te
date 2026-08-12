@@ -17,3 +17,9 @@ allow init {
 }:file setattr;
 
 allow init proc_last_kmsg:file { r_file_perms setattr };
+
+# init.mako.rc execs /system/bin/ip in the netd domain to restore the
+# kernel-default "from all lookup main" rule that netd flushes at boot
+# (required for the data-call default route gateway validation).
+allow init netd:process transition;
+allow init system_file:file execute;
