@@ -1195,6 +1195,13 @@ Return<void> ResponseHandler::setupDataCallResponse(const R10::RadioResponseInfo
     if (mCtx->dataResponse) {
         callStatus(__func__, mCtx->dataResponse->setupDataCallResponse(toAidl(info), aidlResult));
     }
+    // The mako kernel rejects netd's default-route add while the interface
+    // address is still coming up; add the routes from here (NET_ADMIN).
+    if (info.error == R10::RadioError::NONE &&
+        static_cast<int32_t>(dcResponse.status) == static_cast<int32_t>(R10::DataCallFailCause::NONE) &&
+        !dcResponse.ifname.empty() && !dcResponse.gateways.empty()) {
+        mCtx->addDataRoutes(std::string(dcResponse.gateways.c_str()), std::string(dcResponse.ifname.c_str()));
+    }
     return Void();
 }
 

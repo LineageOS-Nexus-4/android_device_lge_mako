@@ -3,6 +3,7 @@
 #include <android-base/logging.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <thread>
 
 namespace android::hardware::radio::shim {
@@ -56,6 +57,37 @@ int32_t ShimContext::nextInternalSerial() {
     std::lock_guard<std::mutex> lock(mMutex);
     if (mNextInternalSerial >= 0x7F000000) mNextInternalSerial = 0x40000000;
     return mNextInternalSerial++;
+}
+
+static std::string sanitizeRouteToken(const std::string& in) {
+    std::string out;
+    for (char c : in) {
+        if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') ||
+            c == '.' || c == ':' || c == '/' || c == '-') {
+            out += c;
+        }
+    }
+    return out;
+}
+
+void ShimContext::addDataRoutes(const std::string& gateway, const std::string& ifname) {
+    const std::string gw = sanitizeRouteToken(gateway);
+    const std::string dev = sanitizeRouteToken(ifname);
+    if (gw.empty() || dev.empty()) return;
+    LOG(INFO) << "adding data routes: gw=" << gw << " dev=" << dev;
+    std::thread([gw, dev]() {
+        for (int attempt = 0; attempt < 10; attempt++) {
+            const std::string cmd = "ip route add default via " + gw + " dev " + dev +
+                                    " table local_network 2>/dev/null; "
+                                    "ip route add default via " + gw + " dev " + dev +
+                                    " table rmnet_usb0 2>/dev/null; "
+                                    "ip route add default via " + gw + " dev " + dev +
+                                    " 2>/dev/null";
+            const int rc = system(cmd.c_str());
+            if (rc == 0) return;
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+        }
+    }).detach();
 }
 
 void ShimContext::scheduleIccIdRetry() {

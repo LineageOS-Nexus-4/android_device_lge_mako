@@ -182,6 +182,12 @@ class ShimContext {
     // Retries the EF-ICCID read after a delay; the mako qcril occasionally
     // returns empty responses so the read must be retried.
     void scheduleIccIdRetry();
+
+    // Adds the data-call default routes for the given gateway/interface.
+    // The mako kernel rejects netd's route add when the interface address is
+    // not up yet (the gateway validation fails with ENETUNREACH), so the
+    // routes are added with retries from the shim (which has NET_ADMIN).
+    void addDataRoutes(const std::string& gateway, const std::string& ifname);
     // Serial for shim-internal HIDL requests (kept far above the framework
     // serial space so it can never collide).
     int32_t nextInternalSerial();
