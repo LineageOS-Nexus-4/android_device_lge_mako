@@ -46,29 +46,46 @@ ar::modem::RadioCapability toAidl(const R10::RadioCapability& rc) {
 
 ar::network::SignalStrength toAidl(const R10::SignalStrength& ss) {
     ar::network::SignalStrength out;
+    // mako is a GSM/WCDMA device; only the V1.0 gw measurements are real.
+    // The QC RIL leaves the other RAT fields at 0 when unmeasured, and the
+    // AIDL components treat any non-INT_MAX value as a valid measurement,
+    // which would make an empty component the signal primary and report
+    // level 0. Mark all other RATs invalid.
     out.gsm.signalStrength = ss.gw.signalStrength;
     out.gsm.bitErrorRate = ss.gw.bitErrorRate;
     out.gsm.timingAdvance = ss.gw.timingAdvance;
-    out.cdma.dbm = ss.cdma.dbm;
-    out.cdma.ecio = ss.cdma.ecio;
-    out.evdo.dbm = ss.evdo.dbm;
-    out.evdo.ecio = ss.evdo.ecio;
-    out.evdo.signalNoiseRatio = ss.evdo.signalNoiseRatio;
-    out.lte.signalStrength = ss.lte.signalStrength;
-    out.lte.rsrp = ss.lte.rsrp;
-    out.lte.rsrq = ss.lte.rsrq;
-    out.lte.rssnr = ss.lte.rssnr;
-    out.lte.cqi = ss.lte.cqi;
-    out.lte.timingAdvance = ss.lte.timingAdvance;
-    out.tdscdma.signalStrength = INT_MAX;  // no equivalent in V1.0
-    out.tdscdma.bitErrorRate = INT_MAX;      // no equivalent in V1.0
-    out.tdscdma.rscp = ss.tdScdma.rscp;
+    out.cdma.dbm = INT_MAX;
+    out.cdma.ecio = INT_MAX;
+    out.evdo.dbm = INT_MAX;
+    out.evdo.ecio = INT_MAX;
+    out.evdo.signalNoiseRatio = INT_MAX;
+    out.lte.signalStrength = INT_MAX;
+    out.lte.rsrp = INT_MAX;
+    out.lte.rsrq = INT_MAX;
+    out.lte.rssnr = INT_MAX;
+    out.lte.cqi = INT_MAX;
+    out.lte.timingAdvance = INT_MAX;
+    out.tdscdma.signalStrength = INT_MAX;
+    out.tdscdma.bitErrorRate = INT_MAX;
+    out.tdscdma.rscp = INT_MAX;
     // V1.0 has no WCDMA measurements; mark all fields invalid.
     out.wcdma.signalStrength = INT_MAX;
     out.wcdma.bitErrorRate = INT_MAX;
     out.wcdma.rscp = INT_MAX;
     out.wcdma.ecno = INT_MAX;
-    // NR stays at its default (all INT_MAX).
+    // NR: the AIDL defaults leave ssRsrq/ssSinr/etc at 0, which the
+    // framework treats as a valid measurement (CellSignalStrengthNr.isValid
+    // compares against the all-UNAVAILABLE default) and would then report
+    // as the signal primary with level 0. Mark every NR field unavailable.
+    out.nr.ssRsrp = INT_MAX;
+    out.nr.ssRsrq = INT_MAX;
+    out.nr.ssSinr = INT_MAX;
+    out.nr.csiRsrp = INT_MAX;
+    out.nr.csiRsrq = INT_MAX;
+    out.nr.csiSinr = INT_MAX;
+    out.nr.csiCqiTableIndex = INT_MAX;
+    out.nr.csiCqiReport = {};
+    out.nr.timingAdvance = INT_MAX;
     return out;
 }
 
