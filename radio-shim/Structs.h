@@ -51,7 +51,7 @@ int32_t toAidlAllowedNetworkTypesBitmap(int32_t preferredNetworkType);
 int32_t toHidlPreferredNetworkType(int32_t networkTypeBitmap);
 
 // sim
-ar::sim::CardStatus toAidl(const R10::CardStatus& cs);
+ar::sim::CardStatus toAidl(const R10::CardStatus& cs, const std::string& iccid);
 ar::sim::AppStatus toAidl(const R10::AppStatus& app);
 R10::IccIo toHidl(const ar::sim::IccIo& io);
 ar::sim::IccIoResult toAidl(const R10::IccIoResult& r);

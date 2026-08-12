@@ -248,7 +248,7 @@ ar::sim::AppStatus toAidl(const R10::AppStatus& app) {
     return out;
 }
 
-ar::sim::CardStatus toAidl(const R10::CardStatus& cs) {
+ar::sim::CardStatus toAidl(const R10::CardStatus& cs, const std::string& iccid) {
     ar::sim::CardStatus out;
     out.cardState = static_cast<int32_t>(cs.cardState);
     out.universalPinState = static_cast<ar::sim::PinState>(cs.universalPinState);
@@ -258,10 +258,9 @@ ar::sim::CardStatus toAidl(const R10::CardStatus& cs) {
     for (const auto& app : cs.applications) {
         out.applications.push_back(toAidl(app));
     }
-    // V1.0 has no atr/iccid/eid; the framework must tolerate empty values
-    // (stock UiccSlot.getPrintableIccIds skips null ICCIDs).
+    // V1.0 has no atr/eid; the iccid is read by the shim from EF-ICCID.
     out.atr = "";
-    out.iccid = "";
+    out.iccid = iccid;
     out.eid = "";
     ar::config::SlotPortMapping slotMap;
     slotMap.physicalSlotId = 0;

@@ -144,6 +144,8 @@ enum class RequestKind : uint16_t {
     DATA_START_KEEPALIVE,
     DATA_STOP_KEEPALIVE,
     CONFIG_GET_SIM_SLOTS_STATUS,
+    SIM_INTERNAL_READ_ICCID,
+    SIM_INTERNAL_READ_ICCID_DATA,
 };
 
 class ShimContext {
@@ -169,6 +171,18 @@ class ShimContext {
     std::shared_ptr<ar::config::IRadioConfigResponse> configResponse;
     std::shared_ptr<ar::config::IRadioConfigIndication> configIndication;
 
+    // The SIM ICCID (EF-ICCID), read by the shim itself because the V1.0
+    // CardStatus carries no iccid. The framework needs it to match the
+    // subscription to the slot; without it the subscription never becomes
+    // active and the Settings SIM status shows "Not available".
+    std::string getIccId();
+    void setIccId(const std::string& iccid);
+    // Kicks off an asynchronous EF-ICCID read (two iccIOForApp requests).
+    void refreshIccId();
+    // Serial for shim-internal HIDL requests (kept far above the framework
+    // serial space so it can never collide).
+    int32_t nextInternalSerial();
+
     // Registers a request before forwarding it to the HIDL radio.
     void registerRequest(int32_t serial, RequestKind kind);
 
@@ -189,6 +203,8 @@ class ShimContext {
   private:
     std::mutex mMutex;
     std::unordered_map<int32_t, RequestKind> mSerialToKind;
+    std::string mIccId;
+    int32_t mNextInternalSerial = 0x40000000;
 };
 
 }  // namespace android::hardware::radio::shim

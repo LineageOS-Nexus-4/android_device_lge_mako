@@ -113,6 +113,9 @@ static void main() {
     publishRadioHal<RadioMessaging>(ctx, ar::messaging::IRadioMessaging::descriptor, "slot1");
     publishRadioHal<RadioData>(ctx, ar::data::IRadioData::descriptor, "slot1");
 
+    // Populate the SIM ICCID so the framework can match the subscription.
+    ctx->refreshIccId();
+
     LOG(INFO) << "mako radio shim is operational";
     ABinderProcess_joinThreadPool();
 }

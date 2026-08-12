@@ -27,6 +27,27 @@ void ResponseHandler::callStatus(const char* method, const ::ndk::ScopedAStatus&
     }
 }
 
+static int toByte(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return 0;
+}
+
+static std::string bcdToString(const std::string& hex) {
+    std::string out;
+    for (size_t i = 0; i + 1 < hex.size(); i += 2) {
+        const int b = (toByte(hex[i]) << 4) | toByte(hex[i + 1]);
+        int d = b & 0xF;
+        if (d > 9) break;
+        out += static_cast<char>('0' + d);
+        d = (b >> 4) & 0xF;
+        if (d > 9) break;
+        out += static_cast<char>('0' + d);
+    }
+    return out;
+}
+
 void ResponseHandler::drop(const char* method, const R10::RadioResponseInfo& info,
                            RequestKind kind) {
     LOG(WARNING) << method << ": serial " << info.serial << " kind " << static_cast<int>(kind)
@@ -173,8 +194,14 @@ Return<void> ResponseHandler::getIccCardStatusResponse(const R10::RadioResponseI
     const auto kind = mCtx->popRequest(info.serial);
     if (kind == RequestKind::SIM_GET_ICC_CARD_STATUS) {
         if (mCtx->simResponse) {
-            callStatus(__func__, mCtx->simResponse->getIccCardStatusResponse(toAidl(info),
-                                                                             toAidl(cardStatus)));
+            callStatus(__func__, mCtx->simResponse->getIccCardStatusResponse(
+                                         toAidl(info), toAidl(cardStatus, mCtx->getIccId())));
+        }
+        // The V1.0 CardStatus has no iccid; fill it from EF-ICCID so the
+        // framework can match the subscription to the slot.
+        if (mCtx->getIccId().empty() &&
+            cardStatus.cardState == R10::CardState::PRESENT) {
+            mCtx->refreshIccId();
         }
     } else if (kind == RequestKind::CONFIG_GET_SIM_SLOTS_STATUS) {
         if (mCtx->configResponse) {
@@ -184,7 +211,7 @@ Return<void> ResponseHandler::getIccCardStatusResponse(const R10::RadioResponseI
             slot.atr = "";
             slot.eid = "";
             ar::config::SimPortInfo port;
-            port.iccId = "";
+            port.iccId = mCtx->getIccId();
             port.logicalSlotId = 0;
             port.portActive = true;
             slot.portInfo.push_back(port);
@@ -202,6 +229,43 @@ Return<void> ResponseHandler::getIccCardStatusResponse(const R10::RadioResponseI
 Return<void> ResponseHandler::iccIOForAppResponse(const R10::RadioResponseInfo& info,
                                                   const R10::IccIoResult& iccIo) {
     const auto kind = mCtx->popRequest(info.serial);
+    if (kind == RequestKind::SIM_INTERNAL_READ_ICCID) {
+        // GET RESPONSE: the EF size is bytes [2..3] of the response.
+        const std::string hex = iccIo.simResponse;
+        if (hex.size() >= 8 && iccIo.sw1 == 0x90 && iccIo.sw2 == 0x00) {
+            const int size = (toByte(hex[4]) << 4 | toByte(hex[5])) << 8 |
+                             (toByte(hex[6]) << 4 | toByte(hex[7]));
+            if (size > 0) {
+                const int32_t serial = mCtx->nextInternalSerial();
+                mCtx->registerRequest(serial, RequestKind::SIM_INTERNAL_READ_ICCID_DATA);
+                R10::IccIo io;
+                io.command = 0xB0;  // READ BINARY
+                io.fileId = 0x2FE2;
+                io.path = "3F00";
+                io.p1 = 0;
+                io.p2 = 0;
+                io.p3 = size;
+                io.data = "";
+                io.pin2 = "";
+                io.aid = "";
+                const auto status = mCtx->radio->iccIOForApp(serial, io);
+                if (!status.isOk()) {
+                    LOG(ERROR) << "internal EF-ICCID READ failed";
+                    mCtx->dropRequest(serial);
+                }
+            }
+        } else {
+            LOG(WARNING) << "internal EF-ICCID GET_RESPONSE failed: " << hex;
+        }
+        return Void();
+    }
+    if (kind == RequestKind::SIM_INTERNAL_READ_ICCID_DATA) {
+        if (iccIo.sw1 == 0x90 && iccIo.sw2 == 0x00) {
+            mCtx->setIccId(bcdToString(iccIo.simResponse));
+            LOG(INFO) << "EF-ICCID read: " << mCtx->getIccId();
+        }
+        return Void();
+    }
     if (kind != RequestKind::SIM_ICC_IO_FOR_APP) return drop(__func__, info, kind), Void();
     if (mCtx->simResponse) {
         callStatus(__func__, mCtx->simResponse->iccIoForAppResponse(toAidl(info), toAidl(iccIo)));
