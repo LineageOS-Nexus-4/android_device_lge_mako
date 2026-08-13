@@ -191,6 +191,7 @@ QCameraHardwareInterface(int cameraId, int mode)
                     mZslLookBackValue(0),
                     mZslEmptyQueueFlag(false),
                     mPictureSizes(NULL),
+                    mPictureSizesPtr(NULL),
                     mVideoSizes(NULL),
                     mCameraState(CAMERA_STATE_UNINITED),
                     mPostPreviewHeap(NULL),
@@ -873,8 +874,7 @@ status_t QCameraHardwareInterface::startPreview()
         mPreviewState = QCAMERA_HAL_PREVIEW_START;
         ALOGV("%s:  HAL::startPreview begin", __func__);
 
-        if(QCAMERA_HAL_PREVIEW_START == mPreviewState &&
-           (mPreviewWindow)) {
+        if(QCAMERA_HAL_PREVIEW_START == mPreviewState) {
             ALOGD("%s:  start preview now", __func__);
             retVal = startPreview2();
             if(retVal == NO_ERROR)
@@ -914,7 +914,8 @@ status_t QCameraHardwareInterface::startPreview2()
 
     const char *str = mParameters.get(QCameraParameters::KEY_SCENE_MODE);
 
-    if (mCameraId == 1 || mRecordingHint || mFlashCond || !strcmp(str, "hdr")) {
+    if (mCameraId == 1 || mRecordingHint || mFlashCond ||
+        (str != NULL && !strcmp(str, "hdr"))) {
         ALOGI("%s:Setting non-ZSL mode",__func__);
         mParameters.set(QCameraParameters::KEY_CAMERA_MODE, 0);
         myMode = (camera_mode_t)(myMode & ~CAMERA_ZSL_MODE);

@@ -301,9 +301,8 @@ service qcamerasvr /vendor/bin/mm-qcamera-daemon
     class early_hal
     user camera
     group camera system inet input
-    # mako bring-up: the 2012 camera blob SEGVs in the linker after the
-    # text-reloc unprotect; it is not needed to reach the setup wizard.
-    disabled
+    # The 2012 camera blob needs text relocations, which the bionic linker
+    # unprotects for us; the daemon is required for the camera HAL.
 
 service wcnss-service /vendor/bin/wcnss_service
     class main

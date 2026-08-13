@@ -76,13 +76,49 @@ PRODUCT_PACKAGES += \
 PRODUCT_PACKAGES += \
     bdAddrLoader
 
-# Camera: the mako camera HAL blob is not in the tree; the legacy
-# provider cannot find legacy/0, so the service crash-loops (exit 1)
-# and apexd tries to revert. Keep cameraserver functional-ish without
-# the provider; camera is not needed for the setup wizard.
-# PRODUCT_PACKAGES += \
-#     android.hardware.camera.provider@2.4-impl \
-#     android.hardware.camera.provider@2.4-service
+# Camera: mako QCamera HAL 1.0 (device/lge/mako/camera) + proprietary
+# mm-camera blobs (vendor/lge/mako/proprietary).
+PRODUCT_PACKAGES += \
+    android.hardware.camera.provider.shim-service \
+    mm-qcamera-daemon \
+    v4l2-qcamera-app \
+    liboemcamera \
+    libmmcamera_faceproc \
+    libmmcamera_statsproc31 \
+    libmmcamera_frameproc \
+    libmmcamera_hdr_lib \
+    libmmcamera_image_stab \
+    libmmcamera_wavelet_lib
+
+# Camera auxiliary libs (dlopen'd by liboemcamera)
+PRODUCT_COPY_FILES += \
+    vendor/lge/mako/proprietary/lib/libchromatix_imx111_default_video.so:system/lib/libchromatix_imx111_default_video.so \
+    vendor/lge/mako/proprietary/lib/libchromatix_imx111_preview.so:system/lib/libchromatix_imx111_preview.so \
+    vendor/lge/mako/proprietary/lib/libchromatix_imx111_zsl.so:system/lib/libchromatix_imx111_zsl.so \
+    vendor/lge/mako/proprietary/lib/libchromatix_imx119_default_video.so:system/lib/libchromatix_imx119_default_video.so \
+    vendor/lge/mako/proprietary/lib/libchromatix_imx119_preview.so:system/lib/libchromatix_imx119_preview.so \
+    vendor/lge/mako/proprietary/lib/libchromatix_ov8825_default_video.so:system/lib/libchromatix_ov8825_default_video.so \
+    vendor/lge/mako/proprietary/lib/libchromatix_ov8825_preview.so:system/lib/libchromatix_ov8825_preview.so \
+    vendor/lge/mako/proprietary/lib/libchromatix_s5k4e1_default_video.so:system/lib/libchromatix_s5k4e1_default_video.so \
+    vendor/lge/mako/proprietary/lib/libchromatix_s5k4e1_preview.so:system/lib/libchromatix_s5k4e1_preview.so \
+    vendor/lge/mako/proprietary/lib/libchromatix_vx6953_default_video.so:system/lib/libchromatix_vx6953_default_video.so \
+    vendor/lge/mako/proprietary/lib/libchromatix_vx6953_preview.so:system/lib/libchromatix_vx6953_preview.so \
+    vendor/lge/mako/proprietary/lib/libmmipl.so:system/lib/libmmipl.so \
+    vendor/lge/mako/proprietary/lib/libmmjpeg.so:system/lib/libmmjpeg.so \
+    vendor/lge/mako/proprietary/lib/libmmjps.so:system/lib/libmmjps.so \
+    vendor/lge/mako/proprietary/lib/libmmmpod.so:system/lib/libmmmpod.so \
+    vendor/lge/mako/proprietary/lib/libmmmpo.so:system/lib/libmmmpo.so \
+    vendor/lge/mako/proprietary/lib/libmmstillomx.so:system/lib/libmmstillomx.so \
+    vendor/lge/mako/proprietary/lib/libgemini.so:system/lib/libgemini.so \
+    vendor/lge/mako/proprietary/lib/libmercury.so:system/lib/libmercury.so \
+    vendor/lge/mako/proprietary/lib/libmorpho_noise_reduction.so:system/lib/libmorpho_noise_reduction.so \
+    vendor/lge/mako/proprietary/lib/libI420colorconvert.so:system/lib/libI420colorconvert.so \
+    vendor/lge/mako/proprietary/lib/libmm-color-convertor.so:system/lib/libmm-color-convertor.so \
+    vendor/lge/mako/proprietary/lib/libimage-jpeg-dec-omx-comp.so:system/lib/libimage-jpeg-dec-omx-comp.so \
+    vendor/lge/mako/proprietary/lib/libimage-jpeg-enc-omx-comp.so:system/lib/libimage-jpeg-enc-omx-comp.so \
+    vendor/lge/mako/proprietary/lib/libimage-omx-common.so:system/lib/libimage-omx-common.so \
+    vendor/lge/mako/proprietary/bin/mm-qcamera-daemon:system/bin/mm-qcamera-daemon \
+    vendor/lge/mako/proprietary/bin/v4l2-qcamera-app:system/bin/v4l2-qcamera-app
 
 # Charger
 PRODUCT_PACKAGES += \

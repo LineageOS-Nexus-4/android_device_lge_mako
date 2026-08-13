@@ -1,4 +1,12 @@
 <manifest version="1.0" type="device" target-level="legacy">
+    <hal format="aidl">
+        <name>android.hardware.camera.provider</name>
+        <version>3</version>
+        <interface>
+            <name>ICameraProvider</name>
+            <instance>virtual/0</instance>
+        </interface>
+    </hal>
     <hal format="hidl">
         <name>android.hardware.audio</name>
         <transport>hwbinder</transport>

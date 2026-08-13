@@ -290,7 +290,7 @@ status_t QCameraStream_preview::putBufferToSurface() {
                     mHalCamCtrl->mPreviewMemory.local_flag[cnt] = BUFFER_UNLOCKED;
                 }
             }
-             if( mHalCamCtrl->mPreviewMemory.local_flag[cnt] != BUFFER_NOT_OWNED) {
+             if( mHalCamCtrl->mPreviewMemory.local_flag[cnt] != BUFFER_NOT_OWNED && mPreviewWindow != NULL) {
                err = mPreviewWindow->cancel_buffer(mPreviewWindow, mHalCamCtrl->mPreviewMemory.buffer_handle[cnt]);
                ALOGV("%s: cancel_buffer: hdl =%p", __func__,  (*mHalCamCtrl->mPreviewMemory.buffer_handle[cnt]));
              }
@@ -665,6 +665,7 @@ status_t QCameraStream_preview::processPreviewFrameWithDisplay(
       cache_inv_data.vaddr, cache_inv_data.fd);
 #endif
 
+  if (this->mPreviewWindow != NULL) {
   if(mHFRFrameSkip == 1)
   {
       const char *str = mHalCamCtrl->mParameters.get(
@@ -742,6 +743,14 @@ status_t QCameraStream_preview::processPreviewFrameWithDisplay(
   /* Save the last displayed frame. We'll be using it to fill the gap between
      when preview stops and postview start during snapshot.*/
   mLastQueuedFrame = &(mDisplayStreamBuf.frame[frame->def.idx]);
+  } else {
+      /* No preview window (camera2 shim): recycle the buffer directly so the
+         camera daemon keeps delivering frames. */
+      ALOGV("%s: no preview window, recycling preview buffer idx %d", __func__, frame->def.idx);
+      if(MM_CAMERA_OK != cam_evt_buf_done(mCameraId, frame)) {
+          ALOGE("BUF DONE FAILED for the recycled buffer");
+      }
+  }
   mHalCamCtrl->mPreviewMemoryLock.unlock();
 
   mHalCamCtrl->mCallbackLock.lock();
