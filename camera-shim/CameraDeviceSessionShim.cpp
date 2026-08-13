@@ -500,7 +500,11 @@ ndk::ScopedAStatus CameraDeviceSessionShim::constructDefaultRequestSettings(
             mDevice->ops->get_parameters(mDevice);
         }
     }
-    camera_metadata_t* m = allocate_camera_metadata(16, 256);
+    camera_metadata_t* m = allocate_camera_metadata(32, 512);
+    const int32_t captureIntent = ANDROID_CONTROL_CAPTURE_INTENT_PREVIEW;
+    add_camera_metadata_entry(m, ANDROID_CONTROL_CAPTURE_INTENT, &captureIntent, 1);
+    const int32_t controlMode = ANDROID_CONTROL_MODE_AUTO;
+    add_camera_metadata_entry(m, ANDROID_CONTROL_MODE, &controlMode, 1);
     const int32_t aeMode = ANDROID_CONTROL_AE_MODE_ON;
     add_camera_metadata_entry(m, ANDROID_CONTROL_AE_MODE, &aeMode, 1);
     const int32_t afMode = ANDROID_CONTROL_AF_MODE_AUTO;
@@ -509,6 +513,28 @@ ndk::ScopedAStatus CameraDeviceSessionShim::constructDefaultRequestSettings(
     add_camera_metadata_entry(m, ANDROID_CONTROL_AWB_MODE, &awbMode, 1);
     const int32_t fpsRange[] = {30000, 30000};
     add_camera_metadata_entry(m, ANDROID_CONTROL_AE_TARGET_FPS_RANGE, fpsRange, 2);
+    const int32_t effectMode = ANDROID_CONTROL_EFFECT_MODE_OFF;
+    add_camera_metadata_entry(m, ANDROID_CONTROL_EFFECT_MODE, &effectMode, 1);
+    const int32_t antibandingMode = ANDROID_CONTROL_AE_ANTIBANDING_MODE_AUTO;
+    add_camera_metadata_entry(m, ANDROID_CONTROL_AE_ANTIBANDING_MODE, &antibandingMode, 1);
+    const int32_t sceneMode = ANDROID_CONTROL_SCENE_MODE_DISABLED;
+    add_camera_metadata_entry(m, ANDROID_CONTROL_SCENE_MODE, &sceneMode, 1);
+    const int32_t expComp = 0;
+    add_camera_metadata_entry(m, ANDROID_CONTROL_AE_EXPOSURE_COMPENSATION, &expComp, 1);
+    const uint8_t aeLock = ANDROID_CONTROL_AE_LOCK_OFF;
+    add_camera_metadata_entry(m, ANDROID_CONTROL_AE_LOCK, &aeLock, 1);
+    const uint8_t awbLock = ANDROID_CONTROL_AWB_LOCK_OFF;
+    add_camera_metadata_entry(m, ANDROID_CONTROL_AWB_LOCK, &awbLock, 1);
+    const int32_t flashMode = ANDROID_FLASH_MODE_OFF;
+    add_camera_metadata_entry(m, ANDROID_FLASH_MODE, &flashMode, 1);
+    const uint8_t metadataMode = ANDROID_REQUEST_METADATA_MODE_FULL;
+    add_camera_metadata_entry(m, ANDROID_REQUEST_METADATA_MODE, &metadataMode, 1);
+    const uint8_t afTrigger = ANDROID_CONTROL_AF_TRIGGER_IDLE;
+    add_camera_metadata_entry(m, ANDROID_CONTROL_AF_TRIGGER, &afTrigger, 1);
+    const float focusDistance = 0.0f;
+    add_camera_metadata_entry(m, ANDROID_LENS_FOCUS_DISTANCE, &focusDistance, 1);
+    const uint8_t faceDetect = ANDROID_STATISTICS_FACE_DETECT_MODE_OFF;
+    add_camera_metadata_entry(m, ANDROID_STATISTICS_FACE_DETECT_MODE, &faceDetect, 1);
     size_t size = get_camera_metadata_size(m);
     _aidl_return->metadata.resize(size);
     memcpy(_aidl_return->metadata.data(), m, size);

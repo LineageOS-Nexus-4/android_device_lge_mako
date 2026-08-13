@@ -90,6 +90,20 @@ camera_metadata_t* CameraDeviceShim::buildStaticCharacteristicsLocked() {
     addInt32(m, ANDROID_SENSOR_INFO_ACTIVE_ARRAY_SIZE, activeArray, 4);
     const float physicalSize[] = {4.6f, 3.45f};
     addFloat(m, ANDROID_SENSOR_INFO_PHYSICAL_SIZE, physicalSize, 2);
+    const uint8_t aeLockAvailable = 1;
+    addByte(m, ANDROID_CONTROL_AE_LOCK_AVAILABLE, &aeLockAvailable, 1);
+    const uint8_t awbLockAvailable = 1;
+    addByte(m, ANDROID_CONTROL_AWB_LOCK_AVAILABLE, &awbLockAvailable, 1);
+    const int32_t distortionModes[] = {ANDROID_DISTORTION_CORRECTION_MODE_OFF};
+    addByte(m, ANDROID_DISTORTION_CORRECTION_AVAILABLE_MODES,
+            reinterpret_cast<const uint8_t*>(distortionModes), 1);
+    const int32_t videoStabModes[] = {ANDROID_CONTROL_VIDEO_STABILIZATION_MODE_OFF};
+    addByte(m, ANDROID_CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES,
+            reinterpret_cast<const uint8_t*>(videoStabModes), 1);
+    const int32_t focusCalibration =
+            ANDROID_LENS_INFO_FOCUS_DISTANCE_CALIBRATION_UNCALIBRATED;
+    addByte(m, ANDROID_LENS_INFO_FOCUS_DISTANCE_CALIBRATION,
+            reinterpret_cast<const uint8_t*>(&focusCalibration), 1);
     addInt32(m, ANDROID_SENSOR_ORIENTATION, &orientation, 1);
     const int64_t exposureRange[] = {10000, 33333333};
     addInt64(m, ANDROID_SENSOR_INFO_EXPOSURE_TIME_RANGE, exposureRange, 2);
