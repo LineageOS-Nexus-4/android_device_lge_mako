@@ -1,0 +1,15 @@
+mako: camera: live preview + still capture working
+
+- preview buffers: RGBA_8888 override (the Adreno 320 skia EGLImage
+  rejects legacy YUV flexible buffers), NV21->RGBA conversion with
+  scaling from the camera daemon frame size
+- results: shutter notification for every frame with a timestamp that
+  matches the result's android.sensor.timestamp (the framework rejects
+  mismatched frames); inputBuffer.streamId=-1
+- buffers: direct ion mmap + ION cache clean/invalidate so the app's
+  consumers see the CPU-written data
+- stills: JPEG SOI alignment (the HAL's JPEG carries a leading byte),
+  camera3_jpeg_blob_v2 footer {0x00FF, size} at width-8 for the
+  ImageReader; no duplicate shutter from the HAL notify
+- HAL: honor camera.disable_zsl_mode (default 1) so the preview avoids
+  the fragile daemon ZSL state machine

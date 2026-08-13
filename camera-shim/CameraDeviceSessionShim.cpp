@@ -1,5 +1,6 @@
 #include "CameraDeviceSessionShim.h"
 
+#include <linux/ioctl.h>
 #include <system/camera_metadata.h>
 #include <ui/GraphicBufferMapper.h>
 #include <ui/Rect.h>
@@ -161,6 +162,100 @@ void initShimPreviewWindow(ShimPreviewWindow* win) {
     win->ops.set_swap_interval = shimWinSetSwapInterval;
     win->ops.set_timestamp = shimWinSetTimestamp;
 }
+
+// Minimal mako ION uapi definitions (kernel 3.4) for cache maintenance.
+struct ShimIonFdData {
+    void* handle;
+    int fd;
+};
+struct ShimIonHandleData {
+    void* handle;
+};
+struct ShimIonFlushData {
+    void* handle;
+    int fd;
+    void* vaddr;
+    unsigned int offset;
+    unsigned int length;
+};
+struct ShimIonCustomData {
+    unsigned int cmd;
+    unsigned long arg;
+};
+#define SHIM_ION_IOC_MAGIC 'I'
+#define SHIM_ION_IOC_IMPORT _IOWR(SHIM_ION_IOC_MAGIC, 5, struct ShimIonFdData)
+#define SHIM_ION_IOC_FREE _IOWR(SHIM_ION_IOC_MAGIC, 1, struct ShimIonHandleData)
+#define SHIM_ION_IOC_CUSTOM _IOWR(SHIM_ION_IOC_MAGIC, 6, struct ShimIonCustomData)
+#define SHIM_ION_MSM_MAGIC 'M'
+#define SHIM_ION_IOC_CLEAN_INV_CACHES _IOWR(SHIM_ION_MSM_MAGIC, 2, struct ShimIonFlushData)
+
+static void shimCleanCache(const native_handle_t* nh, void* vaddr, size_t length) {
+    if (nh == nullptr || nh->numFds < 1 || vaddr == nullptr) {
+        return;
+    }
+    int ionFd = open("/dev/ion", O_RDONLY);
+    if (ionFd < 0) {
+        ALOGE("shim: cache clean: open /dev/ion failed errno=%d", errno);
+        return;
+    }
+    struct ShimIonFdData fdData;
+    memset(&fdData, 0, sizeof(fdData));
+    fdData.fd = nh->data[0];
+    if (ioctl(ionFd, SHIM_ION_IOC_IMPORT, &fdData) == 0 && fdData.handle != nullptr) {
+        struct ShimIonFlushData flush;
+        memset(&flush, 0, sizeof(flush));
+        flush.handle = fdData.handle;
+        flush.fd = nh->data[0];
+        flush.vaddr = vaddr;
+        flush.length = length;
+        struct ShimIonCustomData custom;
+        custom.cmd = SHIM_ION_IOC_CLEAN_INV_CACHES;
+        custom.arg = reinterpret_cast<unsigned long>(&flush);
+        int cr = ioctl(ionFd, SHIM_ION_IOC_CUSTOM, &custom);
+        if (cr != 0) {
+            ALOGE("shim: cache clean failed errno=%d", errno);
+        }
+        struct ShimIonHandleData hd;
+        hd.handle = fdData.handle;
+        ioctl(ionFd, SHIM_ION_IOC_FREE, &hd);
+    }
+    close(ionFd);
+}
+
+// Convert a packed NV21 frame to RGBA (BT.601 full range), scaling to the
+// destination size with nearest-neighbor sampling. Destination rows are
+// assumed packed (width * 4).
+static void nv21ToRgba(const uint8_t* src, uint8_t* dst, int srcW, int srcH,
+                       int dstW, int dstH) {
+    if (srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0) {
+        return;
+    }
+    const uint8_t* yPlane = src;
+    const uint8_t* vuPlane = src + static_cast<size_t>(srcW) * srcH;
+    for (int y = 0; y < dstH; y++) {
+        int sy = (y * srcH) / dstH;
+        const uint8_t* yRow = yPlane + static_cast<size_t>(sy) * srcW;
+        const uint8_t* vuRow = vuPlane + static_cast<size_t>(sy / 2) * srcW;
+        uint8_t* dstRow = dst + static_cast<size_t>(y) * dstW * 4;
+        for (int x = 0; x < dstW; x++) {
+            int sx = (x * srcW) / dstW;
+            int yy = yRow[sx];
+            int v = vuRow[sx & ~1];
+            int u = vuRow[(sx & ~1) + 1];
+            int c = yy - 16;
+            int d = u - 128;
+            int e = v - 128;
+            int r = (298 * c + 409 * e + 128) >> 8;
+            int g = (298 * c - 100 * d - 208 * e + 128) >> 8;
+            int b = (298 * c + 516 * d + 128) >> 8;
+            uint8_t* p = dstRow + static_cast<size_t>(x) * 4;
+            p[0] = (r < 0) ? 0 : ((r > 255) ? 255 : static_cast<uint8_t>(r));
+            p[1] = (g < 0) ? 0 : ((g > 255) ? 255 : static_cast<uint8_t>(g));
+            p[2] = (b < 0) ? 0 : ((b > 255) ? 255 : static_cast<uint8_t>(b));
+            p[3] = 0xff;
+        }
+    }
+}
 }  // namespace
 
 // --- Dummy preview window ---------------------------------------------------
@@ -294,9 +389,10 @@ void CameraDeviceSessionShim::halDataCallbackTimestamp(nsecs_t /*timestamp*/, in
 
 void CameraDeviceSessionShim::halDeviceNotify(int32_t msgType, int32_t /*ext1*/,
                                               int32_t /*ext2*/) {
-    if (msgType == CAMERA_MSG_SHUTTER) {
-        sendShutterNotify(mNextFrameNumber);
-    }
+    // The HAL's shutter message is not used: we send the shutter notification
+    // ourselves with the exact request frame number and a timestamp that
+    // matches the result metadata.
+    (void)msgType;
 }
 
 void CameraDeviceSessionShim::halDeviceData(int32_t msgType, const camera_memory_t* data,
@@ -360,6 +456,9 @@ ndk::ScopedAStatus CameraDeviceSessionShim::configureStreams(
     mPreviewStreamId = -1;
     mJpegStreamId = -1;
     for (const auto& s : requestedConfiguration.streams) {
+        ALOGI("shim: stream req id=%d fmt=0x%x w=%d h=%d usage=0x%x", s.id,
+              static_cast<int>(s.format), s.width, s.height,
+              static_cast<int>(s.usage));
         HalStream hal;
         hal.id = s.id;
         hal.overrideDataSpace = ::aidl::android::hardware::graphics::common::Dataspace::UNKNOWN;
@@ -380,7 +479,9 @@ ndk::ScopedAStatus CameraDeviceSessionShim::configureStreams(
             mPreviewFormat = kHALPixelFormatNV21;
             hal.maxBuffers = 2;
             hal.producerUsage = static_cast<::aidl::android::hardware::graphics::common::BufferUsage>(48L);
-            hal.overrideFormat = ::aidl::android::hardware::graphics::common::PixelFormat::YCBCR_420_888;
+            // RGBA buffers so the app's GL (skia EGLImage) can render them on
+            // the Adreno 320; the shim converts NV21 -> RGBA when filling.
+            hal.overrideFormat = ::aidl::android::hardware::graphics::common::PixelFormat::RGBA_8888;
         } else {
             hal.supportOffline = false;
         }
@@ -625,6 +726,20 @@ bool CameraDeviceSessionShim::fillOutputBuffer(int64_t bufferId, int32_t streamI
     if (nh->numInts >= 3) {
         bufSize = static_cast<size_t>(nh->data[nh->numFds + 2]);
     }
+    ALOGI("shim: buf %lld size=%zu ints=%d: %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x",
+          static_cast<long long>(bufferId), bufSize, nh->numInts,
+          (nh->numInts > 0) ? static_cast<unsigned>(nh->data[nh->numFds + 0]) : 0u,
+          (nh->numInts > 1) ? static_cast<unsigned>(nh->data[nh->numFds + 1]) : 0u,
+          (nh->numInts > 2) ? static_cast<unsigned>(nh->data[nh->numFds + 2]) : 0u,
+          (nh->numInts > 3) ? static_cast<unsigned>(nh->data[nh->numFds + 3]) : 0u,
+          (nh->numInts > 4) ? static_cast<unsigned>(nh->data[nh->numFds + 4]) : 0u,
+          (nh->numInts > 5) ? static_cast<unsigned>(nh->data[nh->numFds + 5]) : 0u,
+          (nh->numInts > 6) ? static_cast<unsigned>(nh->data[nh->numFds + 6]) : 0u,
+          (nh->numInts > 7) ? static_cast<unsigned>(nh->data[nh->numFds + 7]) : 0u,
+          (nh->numInts > 8) ? static_cast<unsigned>(nh->data[nh->numFds + 8]) : 0u,
+          (nh->numInts > 9) ? static_cast<unsigned>(nh->data[nh->numFds + 9]) : 0u,
+          (nh->numInts > 10) ? static_cast<unsigned>(nh->data[nh->numFds + 10]) : 0u,
+          (nh->numInts > 11) ? static_cast<unsigned>(nh->data[nh->numFds + 11]) : 0u);
     if (nh->numFds > 0) {
         vaddr = mmap(nullptr, bufSize, PROT_READ | PROT_WRITE, MAP_SHARED,
                      nh->data[0], 0);
@@ -637,7 +752,51 @@ bool CameraDeviceSessionShim::fillOutputBuffer(int64_t bufferId, int32_t streamI
         }
         return false;
     }
-    memcpy(vaddr, data, size);
+    if (streamId == mPreviewStreamId) {
+        // The HAL's preview callback delivers the camera daemon's NV21 frame
+        // (written into the display window buffers). Derive the real frame
+        // geometry from the private handles: src = the window buffer's dims,
+        // dst = the app buffer's dims.
+        int srcW = 640;
+        int srcH = 480;
+        if (!mShimWindow.handles.empty() && mShimWindow.handles[0] != nullptr) {
+            const native_handle_t* wh = mShimWindow.handles[0];
+            if (wh->numInts >= 11) {
+                srcW = wh->data[wh->numFds + 9];
+                srcH = wh->data[wh->numFds + 10];
+            }
+        }
+        int dstW = mPreviewWidth;
+        int dstH = mPreviewHeight;
+        if (nh->numInts >= 11) {
+            dstW = nh->data[nh->numFds + 9];
+            dstH = nh->data[nh->numFds + 10];
+        }
+        ALOGI("shim: convert %dx%d -> %dx%d", srcW, srcH, dstW, dstH);
+        nv21ToRgba(static_cast<const uint8_t*>(data), static_cast<uint8_t*>(vaddr),
+                   srcW, srcH, dstW, dstH);
+    } else {
+        memcpy(vaddr, data, size);
+        // Append the camera3 JPEG blob footer at the end of the buffer so the
+        // app's ImageReader can read the JPEG size (AIDL CameraBlob format:
+        // {jpeg_blob_id = 0x00FF, jpeg_size}).
+        if (nh->numInts >= 10) {
+            uint32_t blobWidth = static_cast<uint32_t>(nh->data[nh->numFds + 9]);
+            if (blobWidth >= 8) {
+                uint8_t* footer = static_cast<uint8_t*>(vaddr) + blobWidth - 8;
+                uint32_t id = 0x00FF;  // CAMERA3_JPEG_BLOB_ID (AIDL CameraBlobId::JPEG)
+                uint32_t jsz = static_cast<uint32_t>(size);
+                memcpy(footer, &id, 4);
+                memcpy(footer + 4, &jsz, 4);
+            }
+        }
+    }
+    // Make the CPU writes visible to the consumer (the framework does not
+    // perform cache maintenance for buffers we map directly).
+    shimCleanCache(nh, vaddr, bufSize);
+    const uint8_t* chk = static_cast<const uint8_t*>(vaddr);
+    ALOGI("shim: filled b=%lld first=[%02x %02x %02x %02x]", static_cast<long long>(bufferId),
+          chk[0], chk[1], chk[2], chk[3]);
     munmap(vaddr, bufSize);
     return true;
 }
@@ -648,8 +807,18 @@ void CameraDeviceSessionShim::handlePreviewBuffer(const void* data, size_t size)
     }
     PendingBuffer pending = mPendingPreview.front();
     mPendingPreview.pop_front();
-    ALOGI("shim: preview frame %d into buffer %d", pending.frameNumber, pending.bufferId);
+    const uint8_t* dbg = static_cast<const uint8_t*>(data);
+    ALOGI("shim: preview frame %d into buffer %d cb_size=%zu win=%dx%d pv=%dx%d first=[%d %d %d %d %d %d]",
+          pending.frameNumber, pending.bufferId, size, mShimWindow.width, mShimWindow.height,
+          mPreviewWidth, mPreviewHeight,
+          (size > 6) ? dbg[0] : -1, (size > 6) ? dbg[1] : -1, (size > 6) ? dbg[2] : -1,
+          (size > 6) ? dbg[3] : -1, (size > 6) ? dbg[4] : -1, (size > 6) ? dbg[5] : -1);
     fillOutputBuffer(pending.bufferId, mPreviewStreamId, data, size);
+    // The framework only returns filled output buffers to the app's consumer
+    // after the shutter notification for the frame arrives, and requires the
+    // shutter timestamp to match the result's sensor timestamp.
+    const int64_t frameTimestamp = systemTime(SYSTEM_TIME_MONOTONIC);
+    sendShutterNotify(pending.frameNumber, frameTimestamp);
 
     CaptureResult result;
     result.frameNumber = pending.frameNumber;
@@ -657,8 +826,7 @@ void CameraDeviceSessionShim::handlePreviewBuffer(const void* data, size_t size)
     result.partialResult = 1;
     result.inputBuffer.streamId = -1;
     camera_metadata_t* m = allocate_camera_metadata(8, 128);
-    const int64_t timestamp = systemTime(SYSTEM_TIME_MONOTONIC);
-    add_camera_metadata_entry(m, ANDROID_SENSOR_TIMESTAMP, &timestamp, 1);
+    add_camera_metadata_entry(m, ANDROID_SENSOR_TIMESTAMP, &frameTimestamp, 1);
     const int32_t aeState = ANDROID_CONTROL_AE_STATE_CONVERGED;
     add_camera_metadata_entry(m, ANDROID_CONTROL_AE_STATE, &aeState, 1);
     const int32_t afState = ANDROID_CONTROL_AF_STATE_PASSIVE_SCAN;
@@ -685,14 +853,16 @@ void CameraDeviceSessionShim::handlePreviewBuffer(const void* data, size_t size)
     mCallback->processCaptureResult(results);
 }
 
-void CameraDeviceSessionShim::sendShutterNotify(uint32_t frameNumber) {
+void CameraDeviceSessionShim::sendShutterNotify(uint32_t frameNumber, int64_t timestamp) {
     if (mCallback == nullptr) {
         return;
     }
     NotifyMsg msg{};
     ShutterMsg shutter;
     shutter.frameNumber = frameNumber;
-    shutter.timestamp = systemTime(SYSTEM_TIME_MONOTONIC);
+    // The framework requires the shutter timestamp to match the result
+    // metadata's android.sensor.timestamp for the same frame.
+    shutter.timestamp = timestamp;
     msg.set<NotifyMsg::shutter>(shutter);
     mCallback->notify({msg});
 }
@@ -703,17 +873,41 @@ void CameraDeviceSessionShim::handleJpegBuffer(const void* data, size_t size) {
     }
     PendingBuffer pendingJpeg = mPendingJpeg.front();
     mPendingJpeg.pop_front();
-    ALOGI("shim: jpeg %d bytes into buffer %d", static_cast<int>(size), pendingJpeg.bufferId);
-    fillOutputBuffer(pendingJpeg.bufferId, mJpegStreamId, data, size);
-    sendShutterNotify(mActiveRequestId);
+    const uint8_t* jd = static_cast<const uint8_t*>(data);
+    ALOGI("shim: jpeg %d bytes into buffer %d head=[%02x %02x %02x %02x %02x %02x]",
+          static_cast<int>(size), pendingJpeg.bufferId,
+          (size > 0) ? jd[0] : 0, (size > 1) ? jd[1] : 0, (size > 2) ? jd[2] : 0,
+          (size > 3) ? jd[3] : 0, (size > 4) ? jd[4] : 0, (size > 5) ? jd[5] : 0);
+    // The HAL's JPEG stream may carry a leading byte before the SOI marker;
+    // locate the FF D8 start so the app's ImageReader sees a valid header.
+    const uint8_t* jpegData = static_cast<const uint8_t*>(data);
+    size_t jpegSize = size;
+    for (size_t i = 0; i + 1 < size && i < 16; i++) {
+        if (jpegData[i] == 0xff && jpegData[i + 1] == 0xd8) {
+            jpegData += i;
+            jpegSize -= i;
+            break;
+        }
+    }
+    auto jit = mBufferHandles.find(pendingJpeg.bufferId);
+    if (jit != mBufferHandles.end() && jit->second != nullptr) {
+        const native_handle_t* jh = jit->second;
+        ALOGI("shim: jpeg buffer %lld fds=%d ints=%d w=%d h=%d sz=%d",
+              static_cast<long long>(pendingJpeg.bufferId), jh->numFds, jh->numInts,
+              (jh->numInts >= 10) ? jh->data[jh->numFds + 9] : -1,
+              (jh->numInts >= 11) ? jh->data[jh->numFds + 10] : -1,
+              (jh->numInts >= 3) ? jh->data[jh->numFds + 2] : -1);
+    }
+    fillOutputBuffer(pendingJpeg.bufferId, mJpegStreamId, jpegData, jpegSize);
+    const int64_t jpegTimestamp = systemTime(SYSTEM_TIME_MONOTONIC);
+    sendShutterNotify(pendingJpeg.frameNumber, jpegTimestamp);
     CaptureResult result;
     result.frameNumber = pendingJpeg.frameNumber;
     result.fmqResultSize = 0;
     result.partialResult = 1;
     result.inputBuffer.streamId = -1;
     camera_metadata_t* m = allocate_camera_metadata(8, 128);
-    const int64_t timestamp = systemTime(SYSTEM_TIME_MONOTONIC);
-    add_camera_metadata_entry(m, ANDROID_SENSOR_TIMESTAMP, &timestamp, 1);
+    add_camera_metadata_entry(m, ANDROID_SENSOR_TIMESTAMP, &jpegTimestamp, 1);
     const int32_t aeState = ANDROID_CONTROL_AE_STATE_CONVERGED;
     add_camera_metadata_entry(m, ANDROID_CONTROL_AE_STATE, &aeState, 1);
     const int32_t afState = ANDROID_CONTROL_AF_STATE_FOCUSED_LOCKED;

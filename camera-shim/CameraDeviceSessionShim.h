@@ -108,7 +108,7 @@ class CameraDeviceSessionShim : public BnCameraDeviceSession {
     bool setHalParametersLocked(const std::string& params);
     void handlePreviewBuffer(const void* data, size_t size);
     void handleJpegBuffer(const void* data, size_t size);
-    void sendShutterNotify(uint32_t frameNumber);
+    void sendShutterNotify(uint32_t frameNumber, int64_t timestamp);
     bool fillOutputBuffer(int64_t bufferId, int32_t streamId, const void* data, size_t size);
     void processRequest(const CaptureRequest& request);
 
