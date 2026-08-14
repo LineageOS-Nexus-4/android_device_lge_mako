@@ -203,7 +203,10 @@
          if the sensor HAL correctly handles the proximity sensor as a wake-up source.
          Otherwise, the device may fail to wake out of suspend reliably.
          The default is false. -->
-    <bool name="config_suspendWhenScreenOffDueToProximity">true</bool>
+    <!-- The legacy sensors.qcom HAL on 3.4 does not wake the AP reliably
+         from suspend on proximity events. Keep the AP awake while the screen
+         is off due to proximity so the \"far\" event can wake the display. -->
+    <bool name="config_suspendWhenScreenOffDueToProximity">false</bool>
 
     <!-- MMS user agent string -->
     <string name="config_mms_user_agent" translatable="false">Nexus4</string>
