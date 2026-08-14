@@ -227,6 +227,8 @@ on post-fs-data
     mkdir /dev/socket/mpdecision 2770 root system
 
     # adjust vibrator amplitude
+    chown system system /sys/class/timed_output/vibrator/amp
+    chown system system /sys/class/timed_output/vibrator/pwm
     write /sys/class/timed_output/vibrator/amp 70
 
     # keep that at the end of on post-fs-data
