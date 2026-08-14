@@ -265,12 +265,9 @@ camera_metadata_t* CameraDeviceShim::buildStaticCharacteristicsLocked() {
     addRational(m, ANDROID_CONTROL_AE_COMPENSATION_STEP, aeCompensationStep, 1);
 
     // Flash (rear camera only)
-    const uint8_t flashAvailable = (mCameraId == 0) ? 1 : 0;
+    const uint8_t flashAvailable = (mCameraId == 0) ? ANDROID_FLASH_INFO_AVAILABLE_TRUE
+                                                    : ANDROID_FLASH_INFO_AVAILABLE_FALSE;
     addByte(m, ANDROID_FLASH_INFO_AVAILABLE, &flashAvailable, 1);
-    const int32_t flashModes[] = {ANDROID_FLASH_MODE_OFF, ANDROID_FLASH_MODE_SINGLE,
-                                  ANDROID_FLASH_MODE_TORCH};
-    addByte(m, ANDROID_FLASH_INFO_AVAILABLE_TRUE,
-            reinterpret_cast<const uint8_t*>(flashModes), 1);
 
     // JPEG
     const int32_t thumbnailSizes[][2] = {{512, 288}, {480, 320}, {320, 240}, {240, 180}, {0, 0}};
