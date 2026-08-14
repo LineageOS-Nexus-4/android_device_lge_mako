@@ -36,4 +36,10 @@
          does not work well, particularly with noisy touchscreens. Note that disabling it may
          increase the rate of unintentional unlocks. -->
     <bool name="config_lockscreenAntiFalsingClassifierEnabled">false</bool>
+
+    <!-- AOSP 17 excludes the wired-headset icon from the status bar by default.
+         Re-include it: mako is a phone, users expect the headset icon. -->
+    <string-array name="config_statusBarIconsToExclude" translatable="false">
+        <item>@*android:string/status_bar_rotate</item>
+    </string-array>
 </resources>
