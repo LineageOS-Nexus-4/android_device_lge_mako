@@ -3,7 +3,13 @@
 
 #include <system/camera_metadata.h>
 
+#include <android-base/logging.h>
+#include <android-base/strings.h>
+#include <android-base/file.h>
+
+#include <cerrno>
 #include <cinttypes>
+#include <cstring>
 
 namespace aidl::android::hardware::camera::provider::shim {
 
@@ -404,6 +410,12 @@ ndk::ScopedAStatus CameraDeviceShim::setTorchMode(bool on) {
         return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
     }
     std::lock_guard<std::mutex> lock(mLock);
+    if (!::android::base::WriteStringToFile(on ? "255" : "0",
+            "/sys/class/leds/spotlight/brightness")) {
+        ALOGE("shim: setTorchMode(%d): spotlight write failed: %s",
+              on, strerror(errno));
+        return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
+    }
     mTorchOn = on;
     return ndk::ScopedAStatus::ok();
 }

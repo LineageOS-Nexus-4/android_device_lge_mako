@@ -635,6 +635,7 @@ void CameraDeviceSessionShim::processRequest(const CaptureRequest& request) {
         }
         if (find_camera_metadata_ro_entry(m, ANDROID_FLASH_MODE, &entry) == 0 &&
             entry.count > 0) {
+            ALOGI("shim: request FLASH_MODE=%u", entry.data.u8[0]);
             const char* flashMode = "off";
             switch (entry.data.u8[0]) {
                 case ANDROID_FLASH_MODE_SINGLE:

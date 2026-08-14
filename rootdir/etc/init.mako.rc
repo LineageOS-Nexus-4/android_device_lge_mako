@@ -223,6 +223,10 @@ on post-fs-data
     # LED On/Off synchronization
     chown system system /sys/class/leds/red/device/lock
 
+    # camera torch/flash (lm3559)
+    chown camera camera /sys/class/leds/spotlight/brightness
+    chown camera camera /sys/class/leds/spotlight/trigger
+
     # communicate with mpdecision and thermald
     mkdir /dev/socket/mpdecision 2770 root system
 
