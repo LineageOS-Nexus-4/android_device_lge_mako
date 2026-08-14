@@ -56,7 +56,7 @@ on property:sys.usb.config=mtp,adb
     write /sys/class/android_usb/android0/f_ffs/aliases adb
     write /sys/class/android_usb/android0/functions mtp,adb
     write /sys/class/android_usb/android0/enable 1
-    start adbd
+    restart adbd
     setprop sys.usb.state ${sys.usb.config}
 
 # rndis
@@ -82,7 +82,7 @@ on property:sys.usb.config=rndis,adb
     write /sys/class/android_usb/android0/f_ffs/aliases adb
     write /sys/class/android_usb/android0/functions rndis,adb
     write /sys/class/android_usb/android0/enable 1
-    start adbd
+    restart adbd
     setprop sys.usb.state ${sys.usb.config}
 
 # PTP
@@ -108,5 +108,5 @@ on property:sys.usb.config=ptp,adb
     write /sys/class/android_usb/android0/f_ffs/aliases adb
     write /sys/class/android_usb/android0/functions ptp,adb
     write /sys/class/android_usb/android0/enable 1
-    start adbd
+    restart adbd
     setprop sys.usb.state ${sys.usb.config}
