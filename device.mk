@@ -146,8 +146,14 @@ PRODUCT_PACKAGES += \
     copybit.msm8960 \
     memtrack.msm8960
 
-# GPS (deferred: requires external/gps.utils + libloc repos not in this tree)
+# GPS (gpsOne): legacy gps.msm8960 + GNSS 1.0 HIDL service
+PRODUCT_PACKAGES += \
+    android.hardware.gnss@1.0-service \
+    android.hardware.gnss@1.0-impl
 
+PRODUCT_COPY_FILES += \
+    device/lge/mako/gps/etc/gps.conf:$(TARGET_COPY_OUT_VENDOR)/etc/gps.conf \
+    device/lge/mako/gps/etc/sap.conf:$(TARGET_COPY_OUT_VENDOR)/etc/sap.conf
 
 # Health
 PRODUCT_PACKAGES += \

@@ -39,6 +39,7 @@ PRODUCT_PROPERTY_OVERRIDES += \
 # Graphics
 PRODUCT_PROPERTY_OVERRIDES += \
     ro.hardware.egl=adreno \
+    ro.hardware.gps=msm8960 \
     ro.opengles.version=196608 \
     persist.hwc.mdpcomp.enable=true \
     debug.hwui.use_buffer_age=false
