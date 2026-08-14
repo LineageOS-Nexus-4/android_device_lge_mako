@@ -62,8 +62,10 @@ int32_t ShimContext::nextInternalSerial() {
 static std::string sanitizeRouteToken(const std::string& in) {
     std::string out;
     for (char c : in) {
-        if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') ||
-            c == '.' || c == ':' || c == '/' || c == '-') {
+        if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') ||
+            (c >= 'A' && c <= 'Z') ||
+            c == '.' || c == ':' || c == '/' || c == '-' ||
+            c == '_') {
             out += c;
         }
     }
