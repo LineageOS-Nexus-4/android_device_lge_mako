@@ -58,18 +58,30 @@ case $POWER_CLASS in
      logi "Power Class: To override, Before turning BT ON; setprop qcom.bt.dev_power_class <1 or 2 or 3>";;
 esac
 
-if [ "$BDADDR" == "" ]
-then
-/vendor/bin/hci_qcomm_init -e $PWR_CLASS -vv
-else
-/vendor/bin/hci_qcomm_init -b $BDADDR -e $PWR_CLASS -vv
-fi
+# The HIDL 1.0 bluetooth service (bt_vendor) also downloads the firmware
+# on power-on and both share /dev/ttyHS0. Retry until we win the race.
+RC=1
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  logi "Firmware download attempt $attempt"
+  if [ "$BDADDR" == "" ]
+  then
+  /vendor/bin/hci_qcomm_init -e $PWR_CLASS -vv
+  else
+  /vendor/bin/hci_qcomm_init -b $BDADDR -e $PWR_CLASS -vv
+  fi
+  RC=$?
+  if [ "$RC" == "0" ]; then
+    break
+  fi
+  logi "Firmware download attempt $attempt failed (rc=$RC), retrying in 2s"
+  sleep 2
+done
 
-case $? in
+case $RC in
   0) logi "Bluetooth QSoC firmware download succeeded, $PWR_CLASS $BDADDR $TRANSPORT";;
-  *) failed "Bluetooth QSoC firmware download failed" $?;
+  *) failed "Bluetooth QSoC firmware download failed" $RC;
      setprop vendor.bluetooth.status off;
-     exit $?;;
+     exit $RC;;
 esac
 
 setprop vendor.bluetooth.status on
