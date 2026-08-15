@@ -11,6 +11,7 @@
 #include <hardware/gralloc.h>
 #include <ui/GraphicBufferMapper.h>
 
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <map>
@@ -93,6 +94,11 @@ class CameraDeviceSessionShim : public BnCameraDeviceSession {
         ::aidl::android::hardware::camera::device::ConfigureStreamsRet* _aidl_return) override;
 
   private:
+    struct PendingBuffer {
+        int64_t bufferId;
+        uint32_t frameNumber;
+    };
+
     // HAL 1.0 callbacks
     static void halNotify(int32_t msgType, int32_t ext1, int32_t ext2, void* user);
     static void halDataCallback(int32_t msgType, const camera_memory_t* data,
@@ -108,19 +114,21 @@ class CameraDeviceSessionShim : public BnCameraDeviceSession {
     bool setHalParametersLocked(const std::string& params);
     void handlePreviewBuffer(const void* data, size_t size);
     void handleJpegBuffer(const void* data, size_t size);
+    void deliverPreviewResult(const PendingBuffer& pv);
     void sendShutterNotify(uint32_t frameNumber, int64_t timestamp);
     bool fillOutputBuffer(int64_t bufferId, int32_t streamId, const void* data, size_t size);
-    void processRequest(const CaptureRequest& request);
-
-    struct PendingBuffer {
-        int64_t bufferId;
-        uint32_t frameNumber;
-    };
+    void processRequest(std::unique_lock<std::mutex>& lock, const CaptureRequest& request);
 
     camera_module_t* mModule;
     const int mCameraId;
     std::shared_ptr<ICameraDeviceCallback> mCallback;
     std::mutex mLock;
+    // Guards mPendingPreview / mPendingJpeg / mLastPreviewFrame only. The
+    // queues are pushed on the binder thread (under mLock) and popped on
+    // the HAL's callback threads; without this mutex the concurrent
+    // push/pop corrupts the deque and produces garbage {buffer 0, frame 0}
+    // entries ("Shutter notification for non-existent frame number 0").
+    std::mutex mQueueLock;
     std::condition_variable mCv;
 
     camera_device_t* mDevice;
@@ -141,12 +149,30 @@ class CameraDeviceSessionShim : public BnCameraDeviceSession {
     uint32_t mNextFrameNumber;
     bool mConfigured;
     bool mClosed;
-    bool mPreviewRunning;
+    std::atomic<bool> mPreviewRunning;
 
     ShimPreviewWindow mShimWindow;
     std::map<int64_t, native_handle_t*> mBufferHandles;
     std::deque<PendingBuffer> mPendingPreview;
     std::deque<PendingBuffer> mPendingJpeg;
+    // Last real preview frame (NV21): the capture frame's preview buffer
+    // never gets a real frame because the legacy HAL stops the preview
+    // stream for snapshot, so it is filled with this postview copy.
+    std::vector<uint8_t> mLastPreviewFrame;
+    // True while a JPEG capture is in flight. Preview callbacks arriving
+    // during this window belong to the capture frame or arrive late; they
+    // must not be delivered (Camera3 sees out-of-order shutters and errors
+    // the session). The JPEG handler flushes and clears it.
+    bool mCaptureInFlight = false;
+    // Generation counter bumped on configureStreams; a detached post-shot
+    // stop_preview must not tear down a session that was already closed
+    // and reopened.
+    uint32_t mSessionGeneration = 0;
+    // True while the detached post-shot stop_preview is pending. A new
+    // capture must wait for it (or the stop tears the VFE down mid-frame
+    // and the kernel faults -> watchdog reboot).
+    bool mStopPending = false;
+    std::condition_variable mStopCv;
     const gralloc_module_t* mGralloc = nullptr;
 };
 
