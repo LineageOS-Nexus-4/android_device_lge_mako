@@ -824,7 +824,13 @@ void CameraDeviceSessionShim::processRequest(std::unique_lock<std::mutex>& lock,
             const char* flashMode = "off";
             switch (entry.data.u8[0]) {
                 case ANDROID_FLASH_MODE_SINGLE:
-                    flashMode = "on";
+                    // The HAL's flash condition only handles the ZSL path
+                    // (getFlashCondition returns false in non-ZSL mode), so
+                    // "flash-mode=on" never actuates the lm3559. Drive the
+                    // spotlight sysfs directly and let the AE re-settle with
+                    // the LED on (see take_picture below).
+                    mFlashRequested.store(true);
+                    flashMode = "off";
                     break;
                 case ANDROID_FLASH_MODE_TORCH:
                     flashMode = "torch";
@@ -856,7 +862,8 @@ void CameraDeviceSessionShim::processRequest(std::unique_lock<std::mutex>& lock,
             const char* aeFlashMode = nullptr;
             switch (entry.data.u8[0]) {
                 case ANDROID_CONTROL_AE_MODE_ON_ALWAYS_FLASH:
-                    aeFlashMode = "on";
+                    mFlashRequested.store(true);
+                    aeFlashMode = "off";
                     break;
                 case ANDROID_CONTROL_AE_MODE_ON_AUTO_FLASH:
                     aeFlashMode = "auto";
@@ -986,6 +993,13 @@ void CameraDeviceSessionShim::processRequest(std::unique_lock<std::mutex>& lock,
                 std::string p = "picture-size=" + std::to_string(mJpegWidth) +
                                 "x" + std::to_string(mJpegHeight) + ";";
                 setHalParametersLocked(p);
+            }
+            if (mFlashRequested.load()) {
+                ::android::base::WriteStringToFile(
+                        "255", "/sys/class/leds/spotlight/brightness");
+                // Let the preview AE loop re-settle with the LED on, so the
+                // snapshot exposure is metered for the flash-lit scene.
+                usleep(500000);
             }
             if (mDevice->ops->take_picture != nullptr) {
                 mDevice->ops->take_picture(mDevice);
