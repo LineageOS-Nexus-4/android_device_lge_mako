@@ -624,6 +624,9 @@ static int32_t mm_camera_stream_fsm_acquired(mm_camera_obj_t * my_obj __unused,
     case MM_CAMERA_STATE_EVT_GET_CROP:
       rc = mm_camera_stream_util_proc_get_crop(stream, val);
       break;
+    case MM_CAMERA_STATE_EVT_STREAM_OFF:
+        /* Stream never went on; the teardown's STREAM_OFF is a no-op. */
+        break;
     default:
         CDBG_ERROR("%s: Invalid evt=%d, stream_state=%d", __func__, evt,
           stream->state);
@@ -653,6 +656,9 @@ static int32_t mm_camera_stream_fsm_cfg(mm_camera_obj_t * my_obj,
       break;
     case MM_CAMERA_STATE_EVT_REQUEST_BUF:
         rc = mm_camera_stream_util_request_buf(stream, ((mm_camera_buf_def_t *)val)->num);
+        break;
+    case MM_CAMERA_STATE_EVT_STREAM_OFF:
+        /* Stream never went on; the teardown's STREAM_OFF is a no-op. */
         break;
     default:
         CDBG_ERROR("%s: Invalid evt=%d, stream_state=%d", __func__, evt,
@@ -710,6 +716,13 @@ static int32_t mm_camera_stream_fsm_reg(mm_camera_obj_t * my_obj __unused,
         if(!rc)
             mm_camera_stream_util_set_state(stream, MM_CAMERA_STREAM_STATE_CFG);
         break;
+    case MM_CAMERA_STATE_EVT_STREAM_OFF:
+        /* Stream is already off (state REG). The teardown sequence may
+         * still send STREAM_OFF after a failed/aborted STREAM_ON; treat
+         * it as a no-op instead of erroring out (an error aborts the
+         * whole teardown, leaks the stream fd and leaves the kernel
+         * stream state dirty for the next camera session). */
+        break;
     case MM_CAMERA_STATE_EVT_STREAM_ON:
         {
             enum v4l2_buf_type buf_type;
@@ -764,6 +777,10 @@ static int32_t mm_camera_stream_fsm_active(mm_camera_obj_t * my_obj __unused,
         break;
     case MM_CAMERA_STATE_EVT_RELEASE:
         mm_camera_stream_release(stream);
+        break;
+    case MM_CAMERA_STATE_EVT_STREAM_ON:
+        /* Stream is already on (state ACTIVE); a duplicate STREAM_ON from
+         * a racing start sequence must not abort the state machine. */
         break;
     case MM_CAMERA_STATE_EVT_STREAM_OFF:
         {
