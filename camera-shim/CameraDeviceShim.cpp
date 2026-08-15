@@ -1,5 +1,8 @@
 #include "CameraDeviceShim.h"
 #include "CameraDeviceSessionShim.h"
+#include "CameraProviderShim.h"
+
+#include <aidl/android/hardware/camera/common/TorchModeStatus.h>
 
 #include <system/camera_metadata.h>
 
@@ -19,6 +22,11 @@ using ::aidl::android::hardware::camera::common::CameraResourceCost;
 
 CameraDeviceShim::CameraDeviceShim(int cameraId, camera_module_t* module)
     : mCameraId(cameraId), mModule(module), mStaticMetadata(nullptr), mTorchOn(false) {}
+
+void CameraDeviceShim::setProvider(CameraProviderShim* provider) {
+    std::lock_guard<std::mutex> lock(mLock);
+    mProvider = provider;
+}
 
 CameraDeviceShim::~CameraDeviceShim() {
     std::lock_guard<std::mutex> lock(mLock);
@@ -406,14 +414,25 @@ ndk::ScopedAStatus CameraDeviceShim::setTorchMode(bool on) {
     if (mCameraId != 0) {
         return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
     }
-    std::lock_guard<std::mutex> lock(mLock);
-    if (!::android::base::WriteStringToFile(on ? "255" : "0",
-            "/sys/class/leds/spotlight/brightness")) {
-        ALOGE("shim: setTorchMode(%d): spotlight write failed: %s",
-              on, strerror(errno));
-        return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
+    CameraProviderShim* provider;
+    {
+        std::lock_guard<std::mutex> lock(mLock);
+        if (!::android::base::WriteStringToFile(on ? "255" : "0",
+                "/sys/class/leds/spotlight/brightness")) {
+            ALOGE("shim: setTorchMode(%d): spotlight write failed: %s",
+                  on, strerror(errno));
+            return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
+        }
+        mTorchOn = on;
+        provider = mProvider;
     }
-    mTorchOn = on;
+    if (provider != nullptr) {
+        using ::aidl::android::hardware::camera::common::TorchModeStatus;
+        provider->notifyTorchModeChanged(
+                "device@1.0/virtual/0",
+                static_cast<int32_t>(on ? TorchModeStatus::AVAILABLE_ON
+                                        : TorchModeStatus::AVAILABLE_OFF));
+    }
     return ndk::ScopedAStatus::ok();
 }
 

@@ -50,6 +50,10 @@ class CameraProviderShim : public BnCameraProvider {
         bool* _aidl_return) override;
 
   private:
+  public:
+    void notifyTorchModeChanged(const std::string& deviceName, int32_t newStatus);
+
+  private:
     static const int kNumCameras = 2;
     std::mutex mLock;
     std::shared_ptr<ICameraProviderCallback> mCallback;

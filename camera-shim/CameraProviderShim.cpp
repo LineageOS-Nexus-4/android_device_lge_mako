@@ -1,7 +1,12 @@
 #include "CameraProviderShim.h"
 #include "CameraDeviceShim.h"
 
+#include <aidl/android/hardware/camera/common/TorchModeStatus.h>
+
 #include <hardware/hardware.h>
+
+#include <android-base/logging.h>
+#include <log/log.h>
 
 #include <cstring>
 
@@ -61,9 +66,28 @@ ndk::ScopedAStatus CameraProviderShim::getCameraDeviceInterface(
                  .emplace(cameraDeviceName,
                           ::ndk::SharedRefBase::make<CameraDeviceShim>(cameraId, module))
                  .first;
+        it->second->setProvider(this);
     }
     *_aidl_return = it->second;
     return ndk::ScopedAStatus::ok();
+}
+
+void CameraProviderShim::notifyTorchModeChanged(const std::string& deviceName,
+                                                 int32_t newStatus) {
+    std::shared_ptr<ICameraProviderCallback> cb;
+    {
+        std::lock_guard<std::mutex> lock(mLock);
+        cb = mCallback;
+    }
+    if (cb != nullptr) {
+        auto status = cb->torchModeStatusChange(
+                deviceName,
+                static_cast<::aidl::android::hardware::camera::common::TorchModeStatus>(
+                        newStatus));
+        if (!status.isOk()) {
+            ALOGE("shim: torchModeStatusChange failed: %s", status.getMessage());
+        }
+    }
 }
 
 ndk::ScopedAStatus CameraProviderShim::notifyDeviceStateChange(int64_t /*deviceState*/) {

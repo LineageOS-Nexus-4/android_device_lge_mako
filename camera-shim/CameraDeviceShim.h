@@ -24,10 +24,12 @@ using ::aidl::android::hardware::camera::device::StreamConfiguration;
 using ::aidl::android::hardware::camera::device::RequestTemplate;
 
 class CameraDeviceSessionShim;
+class CameraProviderShim;
 
 class CameraDeviceShim : public BnCameraDevice {
   public:
     CameraDeviceShim(int cameraId, camera_module_t* module);
+    void setProvider(CameraProviderShim* provider);
     ~CameraDeviceShim() override;
 
     // ICameraDevice
@@ -64,6 +66,7 @@ class CameraDeviceShim : public BnCameraDevice {
     std::mutex mLock;
     camera_metadata_t* mStaticMetadata;
     bool mTorchOn;
+    CameraProviderShim* mProvider = nullptr;
 };
 
 }  // namespace aidl::android::hardware::camera::provider::shim
