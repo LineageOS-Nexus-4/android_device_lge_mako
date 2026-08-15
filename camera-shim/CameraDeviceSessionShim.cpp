@@ -412,7 +412,51 @@ bool CameraDeviceSessionShim::setHalParametersLocked(const std::string& params) 
     if (mDevice == nullptr) {
         return false;
     }
-    return mDevice->ops->set_parameters(mDevice, params.c_str()) == 0;
+    // The legacy HAL treats the parameters string as the COMPLETE set:
+    // its setParameters() runs every set* (setPreviewFpsRange,
+    // setPreviewSize, setHighFrameRate, ...) against the passed object,
+    // so a partial string (e.g. "focus-mode=auto;flash-mode=off;") leaves
+    // the other keys NULL. That corrupts the HAL state: "FPS range value
+    // not supported" wedges the VFE config and the preview callbacks stop
+    // arriving, which stalls the framework's drain at the next camera
+    // switch (5s timeout), tears the session down in an error state and
+    // leaves the daemon's VFE/camif objects dirty for the next camera
+    // (garbage preview -> VFE IOMMU fault -> watchdog reboot).
+    // Merge the changed keys into the full current parameter string first.
+    char* full = mDevice->ops->get_parameters(mDevice);
+    if (full == nullptr) {
+        return false;
+    }
+    std::string merged(full);
+    free(full);
+    size_t start = 0;
+    while (start < params.size()) {
+        size_t end = params.find(';', start);
+        if (end == std::string::npos) {
+            end = params.size();
+        }
+        std::string kv = params.substr(start, end - start);
+        size_t eq = kv.find('=');
+        if (eq != std::string::npos && eq > 0) {
+            std::string key = kv.substr(0, eq);
+            std::string needle = key + "=";
+            size_t pos = merged.find(needle);
+            if (pos != std::string::npos) {
+                size_t semicolon = merged.find(';', pos);
+                if (semicolon == std::string::npos) {
+                    semicolon = merged.size();
+                }
+                merged.replace(pos, semicolon - pos, kv);
+            } else {
+                if (!merged.empty() && merged.back() != ';') {
+                    merged += ';';
+                }
+                merged += kv;
+            }
+        }
+        start = end + 1;
+    }
+    return mDevice->ops->set_parameters(mDevice, merged.c_str()) == 0;
 }
 
 ndk::ScopedAStatus CameraDeviceSessionShim::close() {
@@ -507,6 +551,9 @@ ndk::ScopedAStatus CameraDeviceSessionShim::configureStreams(
     if (!openHalDeviceLocked()) {
         return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
     }
+    // A newly configured session is a fresh start: stop the flush-abort
+    // window so its preview results are delivered normally.
+    mFlushAbortTime.store(0);
     _aidl_return->clear();
     mPreviewStreamId = -1;
     mJpegStreamId = -1;
@@ -540,7 +587,16 @@ ndk::ScopedAStatus CameraDeviceSessionShim::configureStreams(
             mPreviewWidth = s.width;
             mPreviewHeight = s.height;
             mPreviewFormat = kHALPixelFormatNV21;
-            hal.maxBuffers = 2;
+            // Keep more buffers in the stream than the app's consumer can
+            // hold: when the app stops rendering (camera switch/close) it
+            // keeps its acquired preview images, and a 2-buffer stream
+            // starves the framework's request thread (getBuffer blocks ->
+            // drain times out for the full 5s -> forced error-state
+            // teardown corrupts the kernel stream state). With a larger
+            // pool the repeating requests keep flowing and complete with
+            // ERROR buffers after the flush (see flush()), so the drain
+            // finishes promptly and the switch is clean.
+            hal.maxBuffers = 4;
             hal.producerUsage = static_cast<::aidl::android::hardware::graphics::common::BufferUsage>(48L);
             // RGBA buffers so the app's GL (skia EGLImage) can render them on
             // the Adreno 320; the shim converts NV21 -> RGBA when filling.
@@ -610,6 +666,20 @@ ndk::ScopedAStatus CameraDeviceSessionShim::flush() {
     if (mDevice != nullptr && mPreviewRunning) {
         mDevice->ops->cancel_picture(mDevice);
     }
+    // The app stops consuming preview buffers while closing/switching
+    // cameras (its renderer thread quits before CameraDevice.close()).
+    // The framework's repeating loop keeps resubmitting requests whose
+    // OK-status results then block on the full producer queue, stalling
+    // the shim's callback thread, the HAL frame dispatch and finally the
+    // framework's drain for the full 5s timeout. The forced error-state
+    // teardown then leaves the kernel stream state dirty for the next
+    // camera (QBUF EINVAL, dead preview). Deliver the preview buffers as
+    // ERROR for a short window after a flush: the framework returns them
+    // to the stream without touching the consumer, so nothing blocks and
+    // the drain completes promptly. The window expires so a session that
+    // resumes normally keeps receiving real frames.
+    mFlushAbortTime.store(systemTime(SYSTEM_TIME_MONOTONIC));
+    ALOGI("shim: DBG flush() called");
     // Return every pending buffer as an error result so the framework's
     // inflight tracking drains; otherwise waitUntilDrained times out when
     // the app closes the session right after a shot.
@@ -699,6 +769,8 @@ void CameraDeviceSessionShim::processRequest(std::unique_lock<std::mutex>& lock,
     if (!openHalDeviceLocked()) {
         return;
     }
+    ALOGI("shim: DBG req frame=%d bufs=%zu settings=%zu", request.frameNumber,
+          request.outputBuffers.size(), request.settings.metadata.size());
     mActiveRequestId = request.frameNumber;
     const uint32_t frameNumber = mNextFrameNumber++;
 
@@ -1018,8 +1090,12 @@ void CameraDeviceSessionShim::handlePreviewBuffer(const void* data, size_t size)
     {
         std::lock_guard<std::mutex> qlock(mQueueLock);
         if (mPendingPreview.empty()) {
+            ALOGI("shim: DBG preview cb dropped (queue empty) size=%zu", size);
             return;
         }
+        ALOGI("shim: DBG preview cb queued size=%zu front=%u/%u q=%zu",
+              size, mPendingPreview.front().frameNumber,
+              mPendingPreview.front().bufferId, mPendingPreview.size());
         mLastPreviewFrame.assign(static_cast<const uint8_t*>(data),
                                  static_cast<const uint8_t*>(data) + size);
         if (mCaptureInFlight) {
@@ -1072,7 +1148,7 @@ void CameraDeviceSessionShim::handlePreviewBuffer(const void* data, size_t size)
     StreamBuffer out{};
     out.streamId = mPreviewStreamId;
     out.bufferId = pending.bufferId;
-    out.status = BufferStatus::OK;
+    out.status = flushAbortedDelivery() ? BufferStatus::ERROR : BufferStatus::OK;
     result.outputBuffers.push_back(std::move(out));
     std::vector<CaptureResult> results;
     results.push_back(std::move(result));
@@ -1091,6 +1167,26 @@ void CameraDeviceSessionShim::sendShutterNotify(uint32_t frameNumber, int64_t ti
     shutter.timestamp = timestamp;
     msg.set<NotifyMsg::shutter>(shutter);
     mCallback->notify({msg});
+}
+
+// True right after a flush(): preview buffers are returned to the
+// framework as ERROR so a stalled consumer cannot block the callback
+// thread (see flush()).
+bool CameraDeviceSessionShim::flushAbortedDelivery() {
+    const int64_t t = mFlushAbortTime.load();
+    if (t == 0) {
+        return false;
+    }
+    // The window must cover the framework's full drain (up to 5s): the
+    // app holds its acquired preview images for the whole close, so an
+    // OK-status delivery can block on the full producer queue at any
+    // point during it. configureStreams() (the next session) resets the
+    // window so a resumed session receives normal frames again.
+    if (systemTime(SYSTEM_TIME_MONOTONIC) - t > 10000000000LL) {
+        mFlushAbortTime.store(0);
+        return false;
+    }
+    return true;
 }
 
 // Completes one in-flight preview request whose preview callback never
@@ -1126,7 +1222,7 @@ void CameraDeviceSessionShim::deliverPreviewResult(const PendingBuffer& pv) {
     StreamBuffer fbuf{};
     fbuf.streamId = mPreviewStreamId;
     fbuf.bufferId = pv.bufferId;
-    fbuf.status = BufferStatus::OK;
+    fbuf.status = flushAbortedDelivery() ? BufferStatus::ERROR : BufferStatus::OK;
     fr.outputBuffers.push_back(std::move(fbuf));
     std::vector<CaptureResult> fresults;
     fresults.push_back(std::move(fr));

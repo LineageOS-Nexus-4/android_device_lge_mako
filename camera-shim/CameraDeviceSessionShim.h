@@ -115,6 +115,7 @@ class CameraDeviceSessionShim : public BnCameraDeviceSession {
     void handlePreviewBuffer(const void* data, size_t size);
     void handleJpegBuffer(const void* data, size_t size);
     void deliverPreviewResult(const PendingBuffer& pv);
+    bool flushAbortedDelivery();
     void sendShutterNotify(uint32_t frameNumber, int64_t timestamp);
     bool fillOutputBuffer(int64_t bufferId, int32_t streamId, const void* data, size_t size);
     void processRequest(std::unique_lock<std::mutex>& lock, const CaptureRequest& request);
@@ -173,6 +174,10 @@ class CameraDeviceSessionShim : public BnCameraDeviceSession {
     // and the kernel faults -> watchdog reboot).
     bool mStopPending = false;
     std::condition_variable mStopCv;
+    // Monotonic timestamp of the last flush(); preview buffers are
+    // delivered with ERROR status for a short window afterwards so a
+    // stalled consumer cannot block the result delivery (see flush()).
+    std::atomic<int64_t> mFlushAbortTime{0};
     const gralloc_module_t* mGralloc = nullptr;
 };
 
