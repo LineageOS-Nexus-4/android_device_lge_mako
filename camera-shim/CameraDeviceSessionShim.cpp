@@ -2,6 +2,7 @@
 
 #include <linux/ioctl.h>
 #include <system/camera_metadata.h>
+#include <android-base/file.h>
 #include <ui/GraphicBufferMapper.h>
 #include <ui/Rect.h>
 
@@ -582,6 +583,13 @@ ndk::ScopedAStatus CameraDeviceSessionShim::configureStreams(
             hal.maxBuffers = 1;
             hal.producerUsage = static_cast<::aidl::android::hardware::graphics::common::BufferUsage>(0L);
             hal.overrideFormat = ::aidl::android::hardware::graphics::common::PixelFormat::BLOB;
+            // The legacy HAL's snapshot stream is configured from the
+            // "picture-size" parameter, which defaults to a small size;
+            // set it to the JPEG stream's size so captures come out at the
+            // requested resolution.
+            std::string p = "picture-size=" + std::to_string(s.width) + "x" +
+                            std::to_string(s.height) + ";";
+            setHalParametersLocked(p);
         } else if (streamIsPreview(s)) {
             mPreviewStreamId = s.id;
             mPreviewWidth = s.width;
@@ -831,6 +839,11 @@ void CameraDeviceSessionShim::processRequest(std::unique_lock<std::mutex>& lock,
         }
         if (find_camera_metadata_ro_entry(m, ANDROID_JPEG_ORIENTATION, &entry) == 0 &&
             entry.count > 0) {
+            // The legacy HAL feeds the JPEG encoder from mRotation, which is
+            // only set by the camera1 "rotation" parameter; "jpeg-rotation"
+            // alone is ignored, leaving every capture in sensor orientation.
+            params += "rotation=" + std::to_string(entry.data.i32[0]);
+            params += ";";
             params += "jpeg-rotation=" + std::to_string(entry.data.i32[0]);
             params += ";";
         }
@@ -883,6 +896,7 @@ void CameraDeviceSessionShim::processRequest(std::unique_lock<std::mutex>& lock,
         if (buf.streamId == mJpegStreamId) {
             std::lock_guard<std::mutex> qlock(mQueueLock);
             mCaptureInFlight = true;
+            mCaptureInFlightSince = systemTime(SYSTEM_TIME_MONOTONIC);
             break;
         }
     }
@@ -967,6 +981,11 @@ void CameraDeviceSessionShim::processRequest(std::unique_lock<std::mutex>& lock,
                 }
             } else {
                 qlock.unlock();
+            }
+            if (mJpegWidth > 0 && mJpegHeight > 0) {
+                std::string p = "picture-size=" + std::to_string(mJpegWidth) +
+                                "x" + std::to_string(mJpegHeight) + ";";
+                setHalParametersLocked(p);
             }
             if (mDevice->ops->take_picture != nullptr) {
                 mDevice->ops->take_picture(mDevice);
@@ -1104,7 +1123,15 @@ void CameraDeviceSessionShim::handlePreviewBuffer(const void* data, size_t size)
             // later frame before the capture frame's JPEG shutter and kills
             // the Camera3 session (out-of-order). The JPEG handler flushes
             // the pending queue with postview data instead.
-            return;
+            // If the JPEG never arrives (failed/aborted capture), clear the
+            // flag after a few seconds so the preview resumes instead of
+            // staying frozen forever.
+            if (systemTime(SYSTEM_TIME_MONOTONIC) - mCaptureInFlightSince >
+                5000000000LL) {
+                mCaptureInFlight = false;
+            } else {
+                return;
+            }
         }
         pending = mPendingPreview.front();
         mPendingPreview.pop_front();
@@ -1232,6 +1259,11 @@ void CameraDeviceSessionShim::deliverPreviewResult(const PendingBuffer& pv) {
 void CameraDeviceSessionShim::handleJpegBuffer(const void* data, size_t size) {
     if (mCallback == nullptr) {
         return;
+    }
+    if (mFlashRequested.load()) {
+        mFlashRequested.store(false);
+        ::android::base::WriteStringToFile(
+                "0", "/sys/class/leds/spotlight/brightness");
     }
     PendingBuffer pendingJpeg{};
     PendingBuffer pendingPostview{};

@@ -165,6 +165,11 @@ class CameraDeviceSessionShim : public BnCameraDeviceSession {
     // must not be delivered (Camera3 sees out-of-order shutters and errors
     // the session). The JPEG handler flushes and clears it.
     bool mCaptureInFlight = false;
+    int64_t mCaptureInFlightSince = 0;
+    // Set when the current capture wants the flash: the shim drives the
+    // lm3559 spotlight sysfs directly around take_picture instead of using
+    // the HAL's flash-mode=on (which takes a fragile preview-restart path).
+    std::atomic<bool> mFlashRequested{false};
     // Generation counter bumped on configureStreams; a detached post-shot
     // stop_preview must not tear down a session that was already closed
     // and reopened.
