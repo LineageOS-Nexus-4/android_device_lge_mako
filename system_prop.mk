@@ -1,8 +1,7 @@
-# mako: first boot on a 1.5GHz 2012 SoC; skip AOT compilation so dexopt
-# does not cook the device on the first boot (classes run in verify/JIT mode).
+# mako: AOT speed compile system packages for smooth UI
 PRODUCT_PROPERTY_OVERRIDES += \
-    dalvik.vm.dex2oat-filter=verify \
-    dalvik.vm.image-dex2oat-filter=verify
+    dalvik.vm.dex2oat-filter=speed \
+    dalvik.vm.image-dex2oat-filter=speed
 
 # Audio
 # mako bring-up: the audioserver is disabled; never wait for its binder
@@ -36,13 +35,17 @@ PRODUCT_PROPERTY_OVERRIDES += \
 PRODUCT_PROPERTY_OVERRIDES += \
     drm.service.enabled=true
 
-# Graphics
+# Graphics & SurfaceFlinger Performance
 PRODUCT_PROPERTY_OVERRIDES += \
     ro.hardware.egl=adreno \
     ro.hardware.gps=msm8960 \
     ro.opengles.version=196608 \
     persist.hwc.mdpcomp.enable=true \
-    debug.hwui.use_buffer_age=false
+    debug.hwui.use_buffer_age=false \
+    persist.sys.sf.disable_blurs=1 \
+    debug.sys.disable_wallpaper_zoom=1 \
+    debug.sf.latch_unsignaled=1 \
+    debug.sf.enable_gl_backpressure=1
 
 # Media
 PRODUCT_PROPERTY_OVERRIDES += \
@@ -68,4 +71,10 @@ PRODUCT_PROPERTY_OVERRIDES += \
 # Wi-Fi
 PRODUCT_PROPERTY_OVERRIDES += \
     wifi.interface=wlan0
+
+# Low-RAM profile (Android Go recipe): shrinks the cached-app pool, trims
+# SystemUI blurs and caps HWUI caches - the biggest single RAM win for the
+# 1.8GB Nexus 4.
+PRODUCT_PROPERTY_OVERRIDES += \
+    ro.config.low_ram=true
 

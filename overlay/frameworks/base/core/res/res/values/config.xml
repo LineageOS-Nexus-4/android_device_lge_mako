@@ -240,4 +240,6 @@
          manager will disable alpha trasformation in animations where not
          strictly needed. -->
     <bool name="config_sf_limitedAlpha">true</bool>
+    <!-- Disable background/backdrop blurs for GPU performance on low-end hardware -->
+    <bool name="config_supportsBackdropBlurs">false</bool>
 </resources>

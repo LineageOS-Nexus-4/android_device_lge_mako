@@ -111,8 +111,8 @@ TARGET_PROVIDES_LIBLIGHT := true
 TARGET_ADDITIONAL_GRALLOC_10_USAGE_BITS := 0x2000U | 0x02000000U
 TARGET_DISABLE_POSTRENDER_CLEANUP := true
 
-# Dexpreopt
-WITH_DEXPREOPT_BOOT_IMG_AND_SYSTEM_SERVER_ONLY := true
+# Dexpreopt: pre-compile system apps (SystemUI, Launcher, Settings, etc.)
+WITH_DEXPREOPT := true
 WITH_DEXPREOPT_DEBUG_INFO := false
 
 # The target has no boot jars to check

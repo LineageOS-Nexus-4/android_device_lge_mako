@@ -26,8 +26,9 @@ $(call inherit-product, $(SRC_TARGET_DIR)/product/aosp_base_telephony.mk)
 $(call inherit-product, device/lge/mako/device.mk)
 $(call inherit-product, vendor/lge/mako/mako-vendor.mk)
 
-# Dalvik (2 GB configuration)
-$(call inherit-product, frameworks/native/build/phone-xhdpi-2048-dalvik-heap.mk)
+# Dalvik (1 GB configuration: heapgrowthlimit 96m / heapsize 256m so a
+# single app cannot balloon the 1.8GB Nexus 4)
+$(call inherit-product, frameworks/native/build/phone-xhdpi-1024-dalvik-heap.mk)
 
 ## Device identifier. This must come after all inclusions
 PRODUCT_DEVICE := mako
@@ -41,3 +42,14 @@ PRODUCT_SHIPPING_API_LEVEL := 17
 # mako: kernel 3.4 has no EROFS support; build APEX payloads as ext4 so
 # apexd can loop-mount them (ext4+loop+offset is supported on 3.4).
 PRODUCT_DEFAULT_APEX_PAYLOAD_TYPE := ext4
+
+# Android Go-style low-memory allocator: tighter scudo bins and aggressive
+# page purging across all native daemons (eng builds keep the debug
+# allocator, mirroring build/make/target/product/go_defaults_common.mk)
+ifeq (,$(filter eng,$(TARGET_BUILD_VARIANT)))
+  MALLOC_LOW_MEMORY := true
+endif
+
+
+# Pre-compile system apps (SystemUI, Launcher, Settings, etc.) at speed
+PRODUCT_DEX_PREOPT_DEFAULT_COMPILER_FILTER := speed
