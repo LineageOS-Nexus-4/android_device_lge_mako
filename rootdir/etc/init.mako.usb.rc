@@ -23,6 +23,13 @@ on boot
     write /sys/class/android_usb/android0/iProduct ${ro.product.model}
     write /sys/module/rmnet_usb/parameters/rmnet_data_init 1
 
+# mako bring-up: 'adb root'/'adb unroot' make adbd exit(3); the AOSP restart
+# trigger for that lives in init.usb.configfs.rc (configfs-only) and the
+# legacy init.usb.rc has none, so nothing restarts adbd and the USB transport
+# stays dead ("adb offline" after adb root). Restart it here instead.
+on property:init.svc.adbd=stopped && property:sys.usb.config=adb
+    start adbd
+
 on fs
     mkdir /dev/usb-ffs 0770 shell shell
     mkdir /dev/usb-ffs/adb 0770 shell shell

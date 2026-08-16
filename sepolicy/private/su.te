@@ -1,0 +1,10 @@
+# mako bring-up: after 'adb root', init restarts adbd which runs as u:r:su:s0.
+# The AOSP su domain has no functionfs access, so the restarted adbd cannot
+# open /dev/usb-ffs and the transport never comes back ("adb offline" after
+# adb root). Mirror the adbd domain rules from system/sepolicy/private/adbd.te.
+allow su functionfs:dir search;
+allow su functionfs:file rw_file_perms;
+allowxperm su functionfs:file ioctl {
+  FUNCTIONFS_ENDPOINT_DESC
+  FUNCTIONFS_CLEAR_HALT
+};

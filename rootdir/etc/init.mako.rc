@@ -60,6 +60,11 @@ on init
     setprop persist.radio.custom_ecc_hard "911,*911,#911,112,999,000,08,118,120,122,110,119,995,111,113,125,127,133"
     # ZRAM setup
     write /proc/sys/vm/page-cluster 0
+    # mako low-RAM: swap cold anon pages into zram. The 3.4 kernel caps
+    # swappiness at 100 (150 rejected with EINVAL) and the kernel
+    # lowmemorykiller kills at ~180MB free before zram engages at the
+    # default 60, so 100 is required for the 512MB zram to matter.
+    write /proc/sys/vm/swappiness 100
 
 on fs
     mount_all /vendor/etc/fstab.mako
@@ -278,7 +283,9 @@ on property:ro.data.large_tcp_window_size=true
     write /proc/sys/net/ipv4/tcp_adv_win_scale  1
 
 on property:sys.boot_completed=1
-    # Enable ZRAM once boot is completed
+    # Enable ZRAM once boot is completed (lz4 compresses tighter than the
+    # lzo default; device is uninitialized here so the write is accepted)
+    write /sys/block/zram0/comp_algorithm lz4
     swapon_all /vendor/etc/fstab.mako
     # mako: netd flushes the kernel-default "from all lookup main" rule at
     # startup and does not restore it; without it the kernel rejects the
@@ -323,7 +330,11 @@ service bdAddrLoader /vendor/bin/bdAddrLoader -f /persist/bluetooth/.bdaddr -h -
     oneshot
 
 service qseecomd /vendor/bin/qseecomd
-    class core
+    # mako bring-up: class core only starts in 'on boot' (after post-fs-data);
+    # start earlier (early_hal, 'on late-fs') so TZ keymaster/QSEECOM clients
+    # are served before the boot-critical keystore phase. qseecomd has no
+    # /data dependency (TZ apps load via the kernel firmware loader).
+    class early_hal
     user root
     group root
 
