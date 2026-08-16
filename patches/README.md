@@ -4,7 +4,7 @@ Cumulative per-repo patches to apply on a STOCK AOSP 17 (trunk_staging) tree.
 Apply with `git apply <patch>` from the AOSP root (or `patch -p1`).
 Generated 2026-08-16 from the working build VM. All verified with `git apply --check`.
 
-## Repos covered (26 patches)
+## Repos covered (29 patches)
 
 | Patch | Repo | Commits | Note |
 |-------|------|---------|------|
@@ -13,6 +13,7 @@ Generated 2026-08-16 from the working build VM. All verified with `git apply --c
 | build-make.patch | build/make | 1 | releasetools tolerate missing dynamic_partitions_info.txt |
 | device-qcom-sepolicy-legacy.patch | device/qcom/sepolicy-legacy | 2 | SELinux policy fixes for 3.4 (no eBPF/cgv2) |
 | external-skia.patch | external/skia | 1 | EGL_IMAGE_PRESERVED_KHR guard |
+| external-wpa_supplicant_8.patch | external/wpa_supplicant_8 | 2 | qcwcn legacy driver module + namespace import |
 | frameworks-av.patch | frameworks/av | 4 | YV12 decoder output, audioserver, cameraserver disconnect-flush |
 | frameworks-base.patch | frameworks/base | 2 | boot robustness (kernel-configs, boot-phase, hint), SystemUI flashlight |
 | frameworks-native.patch | frameworks/native | 2 | gpuwork guard, legacy gralloc mapper only |
@@ -28,19 +29,21 @@ Generated 2026-08-16 from the working build VM. All verified with `git apply --c
 | packages-modules-Bluetooth.patch | packages/modules/Bluetooth | 1 | gd/hci tolerate old-controller (WCN3660) |
 | packages-modules-Connectivity.patch | packages/modules/Connectivity | 5 | no-eBPF guards (BpfMap, event polling, Clat, BpfNetMaps, NetworkStats) |
 | packages-modules-DnsResolver.patch | packages/modules/DnsResolver | 1 | no-abort when cgroup-v2 unavailable |
+| packages-modules-Wifi.patch | packages/modules/Wifi | 1 | config_wifiMainlineSupplicantEnabled for devices without a vendor supplicant |
 | system-apex.patch | system/apex | 1 | ext4 apex payloads, skip verity check |
 | system-core.patch | system/core | 2 | cgroup-v2 stub (libprocessgroup), debuggerd tombstone find() |
 | system-linkerconfig.patch | system/linkerconfig | 1 | legacy camera HAL platform-lib namespace |
 | system-memory-libmeminfo.patch | system/memory/libmeminfo | 1 | guard sysmeminfo BPF/GPU paths |
 | system-netd.patch | system/netd | 2 | tolerate BPF-less kernels + missing cgroup v2 |
 | system-server_configurable_flags.patch | system/server_configurable_flags | 1 | stub flags health check |
+| system-sepolicy.patch | system/sepolicy | 1 | skip sepolicy_test on legacy policy tree |
 
 ## Not patched (covered elsewhere / not needed)
 
 - **device/lge/mako, kernel/lge/mako, vendor/lge** - maintained as separate repos by the user.
 - **frameworks/opt/telephony** - net diff is EMPTY (all mako RIL patches were reverted at the tip;
   the radio shim lives in device/lge/mako).
-- **Arm64 host changes** (prebuilts/siso, build-tools, jdk, build/soong, build/make host tweaks) - skipped intentionally.
+- **Arm64 host changes** (prebuilts/siso, build-tools, jdk, prebuilts/clang/host/linux-x86, build/soong, build/make host tweaks) - skipped intentionally.
 - **external/python/mako** - template library name match only, no changes.
 - **build/release** - restored, no changes.
 
