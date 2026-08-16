@@ -1,0 +1,18 @@
+diff --git a/DnsProxyListener.cpp b/DnsProxyListener.cpp
+index f55d2c5..f2391c3 100644
+--- a/DnsProxyListener.cpp
++++ b/DnsProxyListener.cpp
+@@ -717,7 +717,12 @@ DnsProxyListener::DnsProxyListener() : FrameworkListener(SOCKET_NAME) {
+     mGetDnsNetIdCommand = std::make_unique<GetDnsNetIdCommand>();
+     registerCmd(mGetDnsNetIdCommand.get());
+ 
+-    if (ADnsHelper_init()) abort();
++    // mako bring-up: ADnsHelper_init (BPF DNS helper) fails on this kernel;
++    // abort() crash-looped netd and re-armed the flags_health_check flood.
++    // Resolver runs degraded (no per-UID DNS filtering).
++    if (ADnsHelper_init()) {
++        LOG(ERROR) << "ADnsHelper_init failed; running without BPF DNS filtering";
++    }
+ }
+ 
+ void DnsProxyListener::Handler::spawn() {

@@ -1,0 +1,122 @@
+diff --git a/server/BandwidthController.cpp b/server/BandwidthController.cpp
+index 8a96738..b653e9c 100644
+--- a/server/BandwidthController.cpp
++++ b/server/BandwidthController.cpp
+@@ -33,10 +33,12 @@
+ #include <vector>
+ 
+ #include <sys/socket.h>
++#include <sys/syscall.h>
+ #include <sys/stat.h>
+ #include <sys/types.h>
+ #include <sys/wait.h>
+ 
++#include <linux/bpf.h>
+ #include <linux/netlink.h>
+ #include <linux/rtnetlink.h>
+ #include <linux/pkt_sched.h>
+@@ -64,6 +66,29 @@ const char BandwidthController::LOCAL_RAW_PREROUTING[] = "bw_raw_PREROUTING";
+ const char BandwidthController::LOCAL_MANGLE_POSTROUTING[] = "bw_mangle_POSTROUTING";
+ const char BandwidthController::LOCAL_GLOBAL_ALERT[] = "bw_global_alert";
+ 
++// Mako bring-up: Linux 3.4 kernels have no eBPF support, so the pinned BPF
++// programs used by the accounting rules below can never exist.  Probe the bpf()
++// syscall once and fall back to pure iptables accounting when unavailable.
++static bool isBpfSupported() {
++    static bool probed = false;
++    static bool supported = false;
++    if (probed) return supported;
++    probed = true;
++    union bpf_attr attr = {};
++    attr.map_type = BPF_MAP_TYPE_ARRAY;
++    attr.key_size = sizeof(uint32_t);
++    attr.value_size = sizeof(uint32_t);
++    attr.max_entries = 1;
++    errno = 0;
++    int fd = syscall(__NR_bpf, BPF_MAP_CREATE, &attr, sizeof(attr));
++    if (fd >= 0) {
++        close(fd);
++        supported = true;
++    }
++    return supported;
++}
++
++
+ auto BandwidthController::iptablesRestoreFunction = execIptablesRestoreWithOutput;
+ 
+ using android::base::Join;
+@@ -202,6 +227,7 @@ static const uint32_t uidBillingMask = Fwmark::getUidBillingMask();
+ 
+ std::vector<std::string> getBasicAccountingCommands() {
+     // clang-format off
++    const bool bpf_supported = isBpfSupported();
+     std::vector<std::string> ipt_basic_accounting_commands = {
+             "*filter",
+ 
+@@ -217,7 +243,7 @@ std::vector<std::string> getBasicAccountingCommands() {
+             "-A bw_penalty_box -j bw_happy_box",
+             "-A bw_happy_box -j bw_data_saver",
+             "-A bw_data_saver -j RETURN",
+-            ("-I bw_happy_box -m bpf --object-pinned " XT_BPF_ALLOWLIST_PROG_PATH " -j RETURN"),
++            bpf_supported ? ("-I bw_happy_box -m bpf --object-pinned " XT_BPF_ALLOWLIST_PROG_PATH " -j RETURN") : "",
+             "COMMIT",
+ 
+             "*raw",
+@@ -236,7 +262,7 @@ std::vector<std::string> getBasicAccountingCommands() {
+             //
+             // Hence we will never double count and additional corrections are not needed.
+             // We can simply take the sum of base and stacked (+20B/pkt) interface counts.
+-            ("-A bw_raw_PREROUTING -m bpf --object-pinned " XT_BPF_INGRESS_PROG_PATH),
++            bpf_supported ? ("-A bw_raw_PREROUTING -m bpf --object-pinned " XT_BPF_INGRESS_PROG_PATH) : "",
+             "COMMIT",
+ 
+             "*mangle",
+@@ -249,7 +275,7 @@ std::vector<std::string> getBasicAccountingCommands() {
+             // This is egress interface accounting: we account 464xlat traffic only on
+             // the clat interface (as offloaded packets never hit base interface's ip6tables)
+             // and later sum base and stacked with overhead (+20B/pkt) in higher layers
+-            ("-A bw_mangle_POSTROUTING -m bpf --object-pinned " XT_BPF_EGRESS_PROG_PATH),
++            bpf_supported ? ("-A bw_mangle_POSTROUTING -m bpf --object-pinned " XT_BPF_EGRESS_PROG_PATH) : "",
+             COMMIT_AND_CLOSE};
+     // clang-format on
+     return ipt_basic_accounting_commands;
+diff --git a/server/Controllers.cpp b/server/Controllers.cpp
+index 8a2c3be..60843cd 100644
+--- a/server/Controllers.cpp
++++ b/server/Controllers.cpp
+@@ -335,7 +335,10 @@ void Controllers::init() {
+         // As such simply exit netd.  This may crash loop the system, but by failing
+         // to bootup we will trigger rollback and thus this offers us protection against
+         // a mainline update breaking things.
+-        exit(2);
++        // mako bring-up: bandwidth control is unavailable on this kernel; keep
++        // netd alive instead of crash-looping (which also re-arms the
++        // flags_health_check flood and overheats the device).
++        gLog.warn("Bandwidth control unavailable; continuing degraded");
+     }
+     gLog.info("Enabling bandwidth control: %" PRId64 "us", s.getTimeAndResetUs());
+ 
+diff --git a/server/main.cpp b/server/main.cpp
+index be9a1d0..97a7bd6 100644
+--- a/server/main.cpp
++++ b/server/main.cpp
+@@ -141,13 +141,16 @@ int main(const int argc, const char* argv[]) {
+ 
+     std::string cg2_path;
+     if (!CgroupGetControllerPath(CGROUPV2_HIERARCHY_NAME, &cg2_path)) {
+-        ALOGE("Failed to find cgroup v2 root %s", strerror(errno));
+-        exit(1);
++        // Mako bring-up: the kernel has no cgroup v2 support.  Fall back to the
++        // default path; BPF/cgroup-v2 dependent features degrade gracefully.
++        ALOGE("Failed to find cgroup v2 root %s, using default path", strerror(errno));
++        cg2_path = "/sys/fs/cgroup";
+     }
+ 
+     if (libnetd_updatable_init(cg2_path.c_str())) {
+         ALOGE("libnetd_updatable_init failed");
+-        exit(1);
++        // mako: kernel 3.4 has no BPF/cgroup v2; continue degraded (daisy 0010 patch).
++        // exit(1);
+     }
+     gLog.info("libnetd_updatable_init success");
+ 

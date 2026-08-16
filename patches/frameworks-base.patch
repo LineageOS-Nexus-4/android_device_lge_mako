@@ -1,0 +1,217 @@
+diff --git a/core/jni/android_os_Debug.cpp b/core/jni/android_os_Debug.cpp
+index 20dc06c99..05cc5e7dc 100644
+--- a/core/jni/android_os_Debug.cpp
++++ b/core/jni/android_os_Debug.cpp
+@@ -797,10 +797,18 @@ static jboolean android_os_Debug_isVmapStack(JNIEnv *env, jobject clazz)
+ 
+     if (cfg_state == CONFIG_UNKNOWN) {
+         std::map<std::string, std::string> configs;
++        // mako bring-up: the 3.4 kernel exposes no kernel configs
++        // (/proc/config.gz is absent), so LoadKernelConfigs() fails.
++        // Treat the unknown config as unset instead of aborting the
++        // system_server from any Debug.isVmapStack() caller.
+         const status_t result = android::kernelconfigs::LoadKernelConfigs(&configs);
+-        CHECK(result == OK) << "Kernel configs could not be fetched. b/151092221";
+-        std::map<std::string, std::string>::const_iterator it = configs.find("CONFIG_VMAP_STACK");
+-        cfg_state = (it != configs.end() && it->second == "y") ? CONFIG_SET : CONFIG_UNSET;
++        if (result != OK) {
++            cfg_state = CONFIG_UNSET;
++        } else {
++            std::map<std::string, std::string>::const_iterator it =
++                    configs.find("CONFIG_VMAP_STACK");
++            cfg_state = (it != configs.end() && it->second == "y") ? CONFIG_SET : CONFIG_UNSET;
++        }
+     }
+     return cfg_state == CONFIG_SET;
+ }
+diff --git a/packages/SystemUI/src/com/android/systemui/qs/tiles/impl/flashlight/domain/interactor/FlashlightTileUserActionInteractor.kt b/packages/SystemUI/src/com/android/systemui/qs/tiles/impl/flashlight/domain/interactor/FlashlightTileUserActionInteractor.kt
+index 9ad7bc01b..04ee0ecdf 100644
+--- a/packages/SystemUI/src/com/android/systemui/qs/tiles/impl/flashlight/domain/interactor/FlashlightTileUserActionInteractor.kt
++++ b/packages/SystemUI/src/com/android/systemui/qs/tiles/impl/flashlight/domain/interactor/FlashlightTileUserActionInteractor.kt
+@@ -52,6 +52,15 @@ constructor(
+                             flashlightInteractor.get().setEnabled(true)
+                             // the ui code runs on the main thread
+                             flashlightDialogDelegate.get().showDialog(input.action.expandable)
++                        } else if (
++                            !ActivityManager.isUserAMonkey() &&
++                                input.data is FlashlightModel.Available.Binary
++                        ) {
++                            // Binary flashes (e.g. lm3559 without strength levels) do not
++                            // advertise TOGGLE_CLICK, so Click must toggle them. Route
++                            // through the new interactor (not the legacy controller) so
++                            // the repository state flow the tile observes stays in sync.
++                            flashlightInteractor.get().setEnabled(!input.data.enabled)
+                         }
+                     } else { // preserve old behavior at the cost of some redundancy
+                         if (
+diff --git a/services/core/java/com/android/server/SystemServiceManager.java b/services/core/java/com/android/server/SystemServiceManager.java
+index dd75a9304..7360740cb 100644
+--- a/services/core/java/com/android/server/SystemServiceManager.java
++++ b/services/core/java/com/android/server/SystemServiceManager.java
+@@ -327,12 +327,14 @@ public final class SystemServiceManager implements Dumpable {
+                 t.traceBegin("OnBootPhase_" + phase + "_" + service.getClass().getName());
+                 try {
+                     service.onBootPhase(mCurrentPhase);
++                
+                 } catch (Exception ex) {
+-                    throw new RuntimeException("Failed to boot service "
++                    android.util.Slog.e(TAG, "Failed to boot service "
+                             + service.getClass().getName()
+                             + ": onBootPhase threw an exception during phase "
+                             + mCurrentPhase, ex);
+                 }
++
+                 warnIfTooLong(SystemClock.elapsedRealtime() - time, service, "onBootPhase");
+                 t.traceEnd();
+             }
+@@ -345,12 +347,14 @@ public final class SystemServiceManager implements Dumpable {
+                         long time = SystemClock.elapsedRealtime();
+                         try {
+                             service.onBootPhase(mCurrentPhase);
+-                        } catch (Exception ex) {
+-                            throw new RuntimeException("Failed to boot service "
+-                                    + service.getClass().getName()
+-                                    + ": onBootPhase threw an exception during phase "
+-                                    + mCurrentPhase, ex);
+-                        }
++                        
++                } catch (Exception ex) {
++                    android.util.Slog.e(TAG, "Failed to boot service "
++                            + service.getClass().getName()
++                            + ": onBootPhase threw an exception during phase "
++                            + mCurrentPhase, ex);
++                }
++
+                         warnIfTooLong(SystemClock.elapsedRealtime() - time, service, "onBootPhase");
+                     }, "OnBootPhase_" + phase + "_" + service.getClass().getName());
+                 }
+diff --git a/services/core/java/com/android/server/audio/AudioService.java b/services/core/java/com/android/server/audio/AudioService.java
+index 45576af37..7bf5afad5 100644
+--- a/services/core/java/com/android/server/audio/AudioService.java
++++ b/services/core/java/com/android/server/audio/AudioService.java
+@@ -14766,6 +14766,13 @@ public class AudioService extends IAudioService.Stub
+             isLowRamDevice = true;
+         }
+ 
++        // mako bring-up: the audioserver is disabled on this device; its
++        // binder service never comes up and setLowRamDevice() would block
++        // the calling thread forever (Watchdog kill).
++        if (AudioSystem.checkAudioFlinger() != AudioSystem.SUCCESS) {
++            Log.i(TAG, "audioserver not available; skipping setLowRamDevice");
++            return;
++        }
+         final int status = AudioSystem.setLowRamDevice(isLowRamDevice, totalMemory);
+         if (status != 0) {
+             Log.w(TAG, "AudioFlinger informed of device's low RAM attribute; status " + status);
+diff --git a/services/core/java/com/android/server/power/hint/HintManagerService.java b/services/core/java/com/android/server/power/hint/HintManagerService.java
+index 5d9e51289..66ceafc41 100644
+--- a/services/core/java/com/android/server/power/hint/HintManagerService.java
++++ b/services/core/java/com/android/server/power/hint/HintManagerService.java
+@@ -331,7 +331,17 @@ public final class HintManagerService extends SystemService {
+                 throw new IllegalStateException("Could not contact PowerHAL!", e);
+             }
+         }
+-        if (mSupportInfo.headroom.isCpuSupported) {
++        // mako bring-up: no AIDL power HAL on this device, SupportInfo is null
++        if (mSupportInfo == null) {
++            Slog.i(TAG, "Power HAL unavailable; hint service running without headroom");
++            mCpuHeadroomCache = null;
++            mUidToLastUserModeJiffies = null;
++            mJiffyMillis = 0.0f;
++            mCheckHeadroomTid = true;
++            mCheckHeadroomAffinity = true;
++            mCheckHeadroomProcStatMinMillis = 0;
++            mCpuHeadroomMaxTidCnt = 0;
++        } else if (mSupportInfo.headroom.isCpuSupported) {
+             mCpuHeadroomCache = new HeadroomCache<>(2, mSupportInfo.headroom.cpuMinIntervalMillis);
+             mUidToLastUserModeJiffies = new ArrayMap<>();
+             long jiffyHz = Os.sysconf(OsConstants._SC_CLK_TCK);
+@@ -354,7 +364,7 @@ public final class HintManagerService extends SystemService {
+             mCheckHeadroomProcStatMinMillis = 0;
+             mCpuHeadroomMaxTidCnt = 0;
+         }
+-        if (mSupportInfo.headroom.isGpuSupported) {
++        if (mSupportInfo != null && mSupportInfo.headroom.isGpuSupported) {
+             mGpuHeadroomCache = new HeadroomCache<>(2, mSupportInfo.headroom.gpuMinIntervalMillis);
+         } else {
+             mGpuHeadroomCache = null;
+@@ -1953,8 +1963,10 @@ public final class HintManagerService extends SystemService {
+                     }
+                 }
+             }
+-            pw.println("CPU Headroom Supported: " + mSupportInfo.headroom.isCpuSupported);
+-            if (mSupportInfo.headroom.isCpuSupported) {
++            if (mSupportInfo != null) {
++                pw.println("CPU Headroom Supported: " + mSupportInfo.headroom.isCpuSupported);
++            }
++            if (mSupportInfo != null && mSupportInfo.headroom.isCpuSupported) {
+                 pw.println("CPU Headroom Interval: " + mSupportInfo.headroom.cpuMinIntervalMillis);
+                 pw.println("CPU Headroom TID Max Count: " + mCpuHeadroomMaxTidCnt);
+                 pw.println("CPU Headroom TID Max Count From HAL: "
+diff --git a/services/core/jni/com_android_server_am_OomConnection.cpp b/services/core/jni/com_android_server_am_OomConnection.cpp
+index 4d07776d8..90a154148 100644
+--- a/services/core/jni/com_android_server_am_OomConnection.cpp
++++ b/services/core/jni/com_android_server_am_OomConnection.cpp
+@@ -46,6 +46,8 @@ static MemEventListener memevent_listener(MemEventClient::AMS);
+ static jobjectArray android_server_am_OomConnection_waitOom(JNIEnv* env, jobject) {
+     if (!memevent_listener.ok()) {
+         memevent_listener.deregisterAllEvents();
++        // mako bring-up: the 3.4 kernel has no eBPF, so no OOM memevents;
++        // throwing makes the Java thread log once and exit cleanly.
+         jniThrowRuntimeException(env, "Failed to initialize memevents listener");
+         return nullptr;
+     }
+diff --git a/services/core/jni/onload.cpp b/services/core/jni/onload.cpp
+index bb53b7fd5..d9c856070 100644
+--- a/services/core/jni/onload.cpp
++++ b/services/core/jni/onload.cpp
+@@ -124,8 +124,8 @@ extern "C" jint JNI_OnLoad(JavaVM* vm, void* /* reserved */)
+     register_android_server_am_MemoryLimiter(env);
+     register_android_server_utils_AnrTimer(env);
+     register_android_server_utils_LazyJniRegistrar(env);
+-    register_com_android_server_soundtrigger_middleware_AudioSessionProviderImpl(env);
+-    register_com_android_server_soundtrigger_middleware_ExternalCaptureStateTracker(env);
++    
++    
+     register_android_server_com_android_server_pm_PackageManagerShellCommandDataLoader(env);
+     register_android_server_AdbDebuggingManager(env);
+     register_android_server_FaceService(env);
+diff --git a/services/java/com/android/server/SystemServer.java b/services/java/com/android/server/SystemServer.java
+index 3ea580823..2b615c799 100644
+--- a/services/java/com/android/server/SystemServer.java
++++ b/services/java/com/android/server/SystemServer.java
+@@ -2488,9 +2488,14 @@ public final class SystemServer implements Dumpable {
+             }
+             t.traceEnd();
+ 
+-            t.traceBegin("StartSoundTriggerMiddlewareService");
+-            mSystemServiceManager.startService(SoundTriggerMiddlewareService.Lifecycle.class);
+-            t.traceEnd();
++            // mako bring-up: soundtrigger's ExternalCaptureStateTracker thread
++            // aborts because the audioserver is disabled; never load the
++            // class (its static field starts that thread) and skip the service.
++            if (false && mPackageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE)) {
++                t.traceBegin("StartSoundTriggerMiddlewareService");
++                mSystemServiceManager.startService(SoundTriggerMiddlewareService.Lifecycle.class);
++                t.traceEnd();
++            }
+ 
+             if (mPackageManager.hasSystemFeature(PackageManager.FEATURE_BROADCAST_RADIO)) {
+                 t.traceBegin("StartBroadcastRadioService");
+@@ -2585,9 +2590,13 @@ public final class SystemServer implements Dumpable {
+             mSystemServiceManager.startService(JobSchedulerService.class);
+             t.traceEnd();
+ 
+-            t.traceBegin("StartSoundTrigger");
+-            mSystemServiceManager.startService(SoundTriggerService.class);
+-            t.traceEnd();
++            // mako bring-up: no soundtrigger HAL and the audioserver is
++            // disabled; ExternalCaptureStateTracker's native connect() aborts.
++            if (false && mPackageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE)) {
++                t.traceBegin("StartSoundTrigger");
++                mSystemServiceManager.startService(SoundTriggerService.class);
++                t.traceEnd();
++            }
+ 
+             t.traceBegin("StartTrustManager");
+             mSystemServiceManager.startService(TrustManagerService.class);

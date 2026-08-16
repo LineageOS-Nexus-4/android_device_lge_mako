@@ -1,0 +1,283 @@
+diff --git a/hal/Android.mk b/hal/Android.mk
+index 184181f..59cbc2f 100644
+--- a/hal/Android.mk
++++ b/hal/Android.mk
+@@ -118,6 +118,7 @@ LOCAL_SHARED_LIBRARIES := \
+ 	libexpat
+ 
+ LOCAL_C_INCLUDES += \
++	kernel/mako-hdr/include \
+ 	external/tinyalsa/include \
+ 	external/tinycompress/include \
+ 	$(call include-path-for, audio-route) \
+@@ -226,14 +227,14 @@ endif
+ 
+ LOCAL_SHARED_LIBRARIES += libbase libhidlbase libutils android.hardware.power@1.2 liblog
+ 
+-LOCAL_SHARED_LIBRARIES += android.hardware.power-ndk_platform
++LOCAL_SHARED_LIBRARIES += android.hardware.power-V7-ndk
+ LOCAL_SHARED_LIBRARIES += libbinder_ndk
+ 
+ LOCAL_SRC_FILES += audio_perf.cpp
+ 
+ LOCAL_HEADER_LIBRARIES += libhardware_headers
+ 
+-LOCAL_HEADER_LIBRARIES += audio_headers generated_kernel_headers
++LOCAL_HEADER_LIBRARIES += audio_headers
+ 
+ LOCAL_MODULE := audio.primary.$(TARGET_BOARD_PLATFORM)
+ 
+@@ -245,7 +246,7 @@ LOCAL_MODULE_OWNER := qcom
+ 
+ LOCAL_PROPRIETARY_MODULE := true
+ 
+-LOCAL_CFLAGS += -Werror
++LOCAL_CFLAGS += -Wno-error
+ 
+ include $(BUILD_SHARED_LIBRARY)
+ 
+diff --git a/hal/audio_hw.c b/hal/audio_hw.c
+index 28faffc..641f46e 100644
+--- a/hal/audio_hw.c
++++ b/hal/audio_hw.c
+@@ -43,7 +43,6 @@
+ #include <utils/Timers.h> // systemTime
+ 
+ #include <hardware/audio_effect.h>
+-#include <hardware/audio_alsaops.h>
+ #include <processgroup/sched_policy.h>
+ #include <system/thread_defs.h>
+ #include <tinyalsa/asoundlib.h>
+@@ -1953,7 +1952,8 @@ int start_input_stream(struct stream_in *in)
+ 
+     list_add_tail(&adev->usecase_list, &uc_info->list);
+ 
+-    audio_streaming_hint_start();
++
++
+     audio_extn_perf_lock_acquire();
+ 
+     select_devices(adev, in->usecase);
+@@ -2023,7 +2023,6 @@ int start_input_stream(struct stream_in *in)
+     check_and_enable_effect(adev);
+     audio_extn_audiozoom_set_microphone_direction(in, in->zoom);
+     audio_extn_audiozoom_set_microphone_field_dimension(in, in->direction);
+-    audio_streaming_hint_end();
+     audio_extn_perf_lock_release();
+     ALOGV("%s: exit", __func__);
+ 
+@@ -2031,7 +2030,6 @@ int start_input_stream(struct stream_in *in)
+ 
+ error_open:
+     stop_input_stream(in);
+-    audio_streaming_hint_end();
+     audio_extn_perf_lock_release();
+ 
+ error_config:
+@@ -2508,7 +2506,8 @@ int start_output_stream(struct stream_out *out)
+ 
+     list_add_tail(&adev->usecase_list, &uc_info->list);
+ 
+-    audio_streaming_hint_start();
++
++
+     audio_extn_perf_lock_acquire();
+ 
+     if ((out->devices & AUDIO_DEVICE_OUT_ALL_A2DP) &&
+@@ -2619,7 +2618,6 @@ int start_output_stream(struct stream_out *out)
+     }
+ 
+     register_out_stream(out);
+-    audio_streaming_hint_end();
+     audio_extn_perf_lock_release();
+     audio_extn_tfa_98xx_enable_speaker();
+ 
+@@ -2642,7 +2640,6 @@ error_open:
+         pcm_close(adev->haptic_pcm);
+         adev->haptic_pcm = NULL;
+     }
+-    audio_streaming_hint_end();
+     audio_extn_perf_lock_release();
+     stop_output_stream(out);
+ error_config:
+diff --git a/hal/audio_hw.h b/hal/audio_hw.h
+index e980e88..7f6a183 100644
+--- a/hal/audio_hw.h
++++ b/hal/audio_hw.h
+@@ -29,6 +29,31 @@
+ #include <audio_utils/Statistics.h>
+ #include "voice.h"
+ 
++// AOSP 17 removed pcm_format_from_audio_format/audio_format_from_pcm_format
++// from audio_utils; provide them here for the legacy HAL.
++static inline enum pcm_format pcm_format_from_audio_format(audio_format_t format) {
++    switch (format) {
++    case AUDIO_FORMAT_PCM_8_BIT: return PCM_FORMAT_S8;
++    case AUDIO_FORMAT_PCM_32_BIT: return PCM_FORMAT_S32_LE;
++    case AUDIO_FORMAT_PCM_8_24_BIT: return PCM_FORMAT_S24_LE;
++    case AUDIO_FORMAT_PCM_24_BIT_PACKED: return PCM_FORMAT_S24_3LE;
++    case AUDIO_FORMAT_PCM_16_BIT:
++    default: return PCM_FORMAT_S16_LE;
++    }
++}
++
++static inline audio_format_t audio_format_from_pcm_format(enum pcm_format format) {
++    switch (format) {
++    case PCM_FORMAT_S8: return AUDIO_FORMAT_PCM_8_BIT;
++    case PCM_FORMAT_S32_LE: return AUDIO_FORMAT_PCM_32_BIT;
++    case PCM_FORMAT_S24_LE: return AUDIO_FORMAT_PCM_8_24_BIT;
++    case PCM_FORMAT_S24_3LE: return AUDIO_FORMAT_PCM_24_BIT_PACKED;
++    case PCM_FORMAT_S16_LE:
++    default: return AUDIO_FORMAT_PCM_16_BIT;
++    }
++}
++
++
+ // dlopen() does not go through default library path search if there is a "/" in the library name.
+ #ifdef __LP64__
+ #define VISUALIZER_LIBRARY_PATH "/vendor/lib64/soundfx/libqcomvisualizer.so"
+@@ -141,7 +166,7 @@ enum {
+     AUDIO_USECASE_MAX
+ };
+ 
+-const char * const use_case_table[AUDIO_USECASE_MAX];
++extern const char * const use_case_table[AUDIO_USECASE_MAX];
+ 
+ #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+ 
+diff --git a/hal/audio_perf.cpp b/hal/audio_perf.cpp
+index d127009..4b9bcc7 100644
+--- a/hal/audio_perf.cpp
++++ b/hal/audio_perf.cpp
+@@ -47,6 +47,7 @@ enum hal_version {
+ 
+ // Connnect PowerHAL
+ static hal_version connectPowerHalLocked() {
++    return NONE;
+     static bool gPowerHalHidlExists = true;
+     static bool gPowerHalAidlExists = true;
+ 
+diff --git a/hal/msm8960/platform.c b/hal/msm8960/platform.c
+index 6cc5411..73d9b39 100644
+--- a/hal/msm8960/platform.c
++++ b/hal/msm8960/platform.c
+@@ -28,6 +28,27 @@
+ #include "audio_extn.h"
+ 
+ #define LIB_ACDB_LOADER "libacdbloader.so"
++
++// name_to_index machinery (defined locally in newer platform files; the
++// LOS 18.1 msm8960 variant references it without defining it)
++struct name_to_index {
++    const char *name;
++    int index;
++};
++
++#define TO_NAME_INDEX(X)   #X, X
++
++static int find_index(const struct name_to_index *table, int32_t len, const char *name)
++{
++    int i;
++    if (table == NULL || name == NULL)
++        return -EINVAL;
++    for (i = 0; i < len; i++) {
++        if (table[i].name != NULL && strcmp(name, table[i].name) == 0)
++            return table[i].index;
++    }
++    return -ENODEV;
++}
+ #define LIB_CSD_CLIENT "libcsd-client.so"
+ 
+ #define DUALMIC_CONFIG_NONE 0      /* Target does not contain 2 mics */
+@@ -38,7 +59,7 @@
+  * This is the sysfs path for the HDMI audio data block
+  */
+ #define AUDIO_DATA_BLOCK_PATH "/sys/class/graphics/fb1/audio_data_block"
+-#define MIXER_XML_PATH "/system/etc/mixer_paths.xml"
++#define MIXER_XML_PATH "/vendor/etc/mixer_paths.xml"
+ 
+ /*
+  * This file will have a maximum of 38 bytes:
+@@ -1491,3 +1512,20 @@ int platform_set_acdb_metainfo_key(void *platform __unused,
+                                    int key __unused) {
+     return -ENOSYS;
+ }
++
++int platform_set_effect_config_data(snd_device_t snd_device __unused,
++                                    struct audio_effect_config effect_config __unused,
++                                    effect_type_t effect_type __unused)
++{
++    return -ENOSYS;
++}
++
++int platform_set_mic_break_det(void *platform __unused, bool enable __unused)
++{
++    return 0;
++}
++
++bool platform_set_microphone_map(void *platform __unused, snd_device_t in_snd_device __unused,
++                                 const struct mic_info *info __unused) {
++    return false;
++}
+diff --git a/hal/msm8960/platform.h b/hal/msm8960/platform.h
+index d2bcd0c..a57337f 100644
+--- a/hal/msm8960/platform.h
++++ b/hal/msm8960/platform.h
+@@ -51,9 +51,11 @@ enum {
+     SND_DEVICE_OUT_BT_SCO_WB,
+     SND_DEVICE_OUT_BT_A2DP,
+     SND_DEVICE_OUT_SPEAKER_AND_BT_A2DP,
++    SND_DEVICE_OUT_SPEAKER_SAFE_AND_BT_A2DP,
+     SND_DEVICE_OUT_VOICE_HANDSET_TMUS,
+     SND_DEVICE_OUT_VOICE_HANDSET,
+     SND_DEVICE_OUT_VOICE_HAC_HANDSET,
++    SND_DEVICE_OUT_VOICE_MUSIC_TX,
+     SND_DEVICE_OUT_VOICE_TTY_FULL_HEADPHONES,
+     SND_DEVICE_OUT_VOICE_TTY_VCO_HEADPHONES,
+     SND_DEVICE_OUT_VOICE_TTY_HCO_HANDSET,
+@@ -80,6 +82,8 @@ enum {
+     SND_DEVICE_IN_HDMI_MIC,
+     SND_DEVICE_IN_BT_SCO_MIC,
+     SND_DEVICE_IN_BT_SCO_MIC_WB,
++    SND_DEVICE_IN_BT_SCO_MIC_NREC,
++    SND_DEVICE_IN_BT_SCO_MIC_WB_NREC,
+     SND_DEVICE_IN_CAMCORDER_MIC,
+     SND_DEVICE_IN_CAPTURE_VI_FEEDBACK,
+     SND_DEVICE_IN_VOICE_DMIC_EF,
+@@ -143,7 +147,7 @@ enum {
+ 
+ #define HFP_ASM_RX_TX 18
+ 
+-#define PLATFORM_INFO_XML_PATH          "audio_platform_info.xml"
++#define PLATFORM_INFO_XML_PATH          "/vendor/etc/audio_platform_info.xml"
+ #define PLATFORM_INFO_XML_BASE_STRING   "audio_platform_info"
+ 
+ #define DEVICE_NAME_MAX_SIZE 128
+diff --git a/post_proc/Android.mk b/post_proc/Android.mk
+index c12db2d..900a261 100644
+--- a/post_proc/Android.mk
++++ b/post_proc/Android.mk
+@@ -39,7 +39,6 @@ LOCAL_C_INCLUDES := \
+ LOCAL_HEADER_LIBRARIES += libhardware_headers
+ LOCAL_HEADER_LIBRARIES += libsystem_headers
+ 
+-LOCAL_HEADER_LIBRARIES += generated_kernel_headers
+ 
+ include $(BUILD_SHARED_LIBRARY)
+ endif
+@@ -74,7 +73,6 @@ LOCAL_C_INCLUDES := \
+ LOCAL_HEADER_LIBRARIES += libhardware_headers
+ LOCAL_HEADER_LIBRARIES += libsystem_headers
+ 
+-LOCAL_HEADER_LIBRARIES += generated_kernel_headers
+ 
+ include $(BUILD_SHARED_LIBRARY)
+ 
+@@ -110,7 +108,6 @@ LOCAL_C_INCLUDES := \
+ LOCAL_HEADER_LIBRARIES += libhardware_headers
+ LOCAL_HEADER_LIBRARIES += libsystem_headers
+ 
+-LOCAL_HEADER_LIBRARIES += generated_kernel_headers
+ 
+ include $(BUILD_SHARED_LIBRARY)
+ 

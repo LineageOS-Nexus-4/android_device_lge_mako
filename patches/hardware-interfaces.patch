@@ -1,0 +1,131 @@
+diff --git a/audio/common/all-versions/default/service/service.cpp b/audio/common/all-versions/default/service/service.cpp
+index 1557a95..9495957 100644
+--- a/audio/common/all-versions/default/service/service.cpp
++++ b/audio/common/all-versions/default/service/service.cpp
+@@ -102,6 +102,8 @@ int main(int /* argc */, char* /* argv */ []) {
+             "android.hardware.audio@6.0::IDevicesFactory",
+             "android.hardware.audio@5.0::IDevicesFactory",
+             "android.hardware.audio@4.0::IDevicesFactory",
++            // mako: the qcom HAL only ships the legacy 2.0 implementation.
++            "android.hardware.audio@2.0::IDevicesFactory",
+         },
+         {
+             "Audio Effect API",
+@@ -109,6 +111,8 @@ int main(int /* argc */, char* /* argv */ []) {
+             "android.hardware.audio.effect@6.0::IEffectsFactory",
+             "android.hardware.audio.effect@5.0::IEffectsFactory",
+             "android.hardware.audio.effect@4.0::IEffectsFactory",
++            // mako: legacy 2.0 effect factory.
++            "android.hardware.audio.effect@2.0::IEffectsFactory",
+         }
+     };
+ 
+diff --git a/bluetooth/1.0/default/vendor_interface.cc b/bluetooth/1.0/default/vendor_interface.cc
+index 3ea30a5..109c1d0 100644
+--- a/bluetooth/1.0/default/vendor_interface.cc
++++ b/bluetooth/1.0/default/vendor_interface.cc
+@@ -359,6 +359,27 @@ void VendorInterface::OnTimeout() {
+     recent_activity_flag = false;
+ }
+ 
++// mako (WCN3660) compat: the controller reports READ_REMOTE_SUPPORTED_FEATURES_COMPLETE
++// (0x0b) without the LMP features field when the read fails for a peer. The modern
++// gd stack validates against the full fixed-size packet (status + handle + reserved +
++// 8-byte lmp_features), so pad the short event with zeros before forwarding.
++static hidl_vec<uint8_t> NormalizeMakoEvent(const hidl_vec<uint8_t>& hci_packet) {
++    constexpr uint8_t kReadRemoteSupportedFeaturesComplete = 0x0b;
++    constexpr uint8_t kHciEventPreamble = 2;  // event code + parameter length
++    constexpr size_t kFullPayloadSize = 11;   // status + handle(2) + lmp_features(8)
++    if (hci_packet.size() < kHciEventPreamble + 1) return hci_packet;
++    if (hci_packet[0] != kReadRemoteSupportedFeaturesComplete) return hci_packet;
++    const size_t plen = hci_packet[1];
++    if (plen >= kFullPayloadSize) return hci_packet;
++    hidl_vec<uint8_t> out;
++    out.resize(kHciEventPreamble + kFullPayloadSize);
++    out[0] = kReadRemoteSupportedFeaturesComplete;
++    out[1] = kFullPayloadSize;
++    for (size_t i = 0; i < plen; i++) out[kHciEventPreamble + i] = hci_packet[kHciEventPreamble + i];
++    for (size_t i = plen; i < kFullPayloadSize; i++) out[kHciEventPreamble + i] = 0;
++    return out;
++}
++
+ void VendorInterface::HandleIncomingEvent(const hidl_vec<uint8_t>& hci_packet) {
+     if (internal_command.cb != nullptr && internal_command_event_match(hci_packet)) {
+         HC_BT_HDR* bt_hdr = WrapPacketAndCopy(HCI_PACKET_TYPE_EVENT, hci_packet);
+@@ -368,7 +389,7 @@ void VendorInterface::HandleIncomingEvent(const hidl_vec<uint8_t>& hci_packet) {
+         internal_command.cb = nullptr;
+         saved_cb(bt_hdr);
+     } else {
+-        event_cb_(hci_packet);
++        event_cb_(NormalizeMakoEvent(hci_packet));
+     }
+ }
+ 
+diff --git a/compatibility_matrices/Android.bp b/compatibility_matrices/Android.bp
+index e34fdca..ee6aab8 100644
+--- a/compatibility_matrices/Android.bp
++++ b/compatibility_matrices/Android.bp
+@@ -39,6 +39,8 @@ SYSTEM_MATRIX_DEPS_A18 = [
+     "framework_compatibility_matrix.202604.xml",
+     "framework_compatibility_matrix.202704.xml",
+     "framework_compatibility_matrix.device.xml",
++    // mako: device manifest declares target-level "legacy"
++    "framework_compatibility_matrix.legacy.xml",
+ ]
+ 
+ // These are the FCMs that are still supported during QPRs
+@@ -49,6 +51,8 @@ SYSTEM_MATRIX_DEPS_A17 = [
+     "framework_compatibility_matrix.202504.xml",
+     "framework_compatibility_matrix.202604.xml",
+     "framework_compatibility_matrix.device.xml",
++    // mako: device manifest declares target-level "legacy"
++    "framework_compatibility_matrix.legacy.xml",
+ ]
+ 
+ phony {
+@@ -141,3 +145,11 @@ vintf_compatibility_matrix {
+     srcs: ["compatibility_matrix.202704.xml"],
+     kernel_configs: ["kernel_config_c_6.18"],
+ }
++
++// mako bring-up: empty framework matrix at FCM level "legacy" for the
++// device manifest's target-level="legacy" declaration.
++vintf_compatibility_matrix {
++    name: "framework_compatibility_matrix.legacy.xml",
++    stem: "compatibility_matrix.legacy.xml",
++    srcs: ["compatibility_matrix.legacy.xml"],
++}
+diff --git a/compatibility_matrices/compatibility_matrix.legacy.xml b/compatibility_matrices/compatibility_matrix.legacy.xml
+new file mode 100644
+index 0000000..2867d83
+--- /dev/null
++++ b/compatibility_matrices/compatibility_matrix.legacy.xml
+@@ -0,0 +1,2 @@
++<?xml version="1.0" encoding="utf-8"?>
++<compatibility-matrix version="1.0" type="framework" level="legacy" />
+diff --git a/graphics/composer/2.1/utils/hwc2on1adapter/HWC2On1Adapter.cpp b/graphics/composer/2.1/utils/hwc2on1adapter/HWC2On1Adapter.cpp
+index f14cbc7..2763dca 100644
+--- a/graphics/composer/2.1/utils/hwc2on1adapter/HWC2On1Adapter.cpp
++++ b/graphics/composer/2.1/utils/hwc2on1adapter/HWC2On1Adapter.cpp
+@@ -1240,6 +1240,21 @@ bool HWC2On1Adapter::Display::prepare() {
+ 
+     prepareFramebufferTarget();
+ 
++    // mako bring-up: allocateRequestedContents() zeroes the contents with
++    // calloc() on every prepare, so the HWC1 framebuffer-target layer always
++    // has a NULL handle at prepare time.  The legacy mako HWC1 gates its
++    // FB-update overlay setup on fbLayer->handle, so it never programs the
++    // display and the panel stays black.  Restore the handle/fence that
++    // set() wrote on the previous frame.
++    if (mHwc1RequestedContents && mHwc1RequestedContents->numHwLayers > 0) {
++        auto& fbLayer =
++                mHwc1RequestedContents->hwLayers[mHwc1RequestedContents->numHwLayers - 1];
++        if (fbLayer.compositionType == HWC_FRAMEBUFFER_TARGET) {
++            fbLayer.handle = mClientTarget.getBuffer();
++            fbLayer.acquireFenceFd = mClientTarget.getFence();
++        }
++    }
++
+     resetGeometryMarker();
+ 
+     return true;

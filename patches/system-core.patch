@@ -1,0 +1,61 @@
+diff --git a/debuggerd/libdebuggerd/tombstone_proto.cpp b/debuggerd/libdebuggerd/tombstone_proto.cpp
+index 6672a1f..1f2fdcb 100644
+--- a/debuggerd/libdebuggerd/tombstone_proto.cpp
++++ b/debuggerd/libdebuggerd/tombstone_proto.cpp
+@@ -995,12 +995,22 @@ void engrave_tombstone_proto(Tombstone* tombstone, unwindstack::AndroidUnwinder*
+   // Only dump logs on debuggable devices.
+   if (android::base::GetBoolProperty("ro.debuggable", false)) {
+     // Get the thread that corresponds to the main pid of the process.
+-    const ThreadInfo& thread = threads.at(target_thread.pid);
+-
+-    // Do not attempt to dump logs of the logd process because the gathering
+-    // of logs can hang until a timeout occurs.
+-    if (thread.thread_name != "logd") {
++    // mako bring-up: on the 3.4 kernel PTRACE_GETREGSET fails for threads
++    // that are already exiting while we attach, so they never enter the
++    // map; use find() instead of at() or crash_dump32 aborts with
++    // "map::at: key not found" and no tombstone is ever written.
++    auto it = threads.find(target_thread.pid);
++    if (it == threads.end()) {
++      // No usable main-thread info; fall back to the crashing thread.
+       dump_logcat(&result, target_thread.pid);
++    } else {
++      const ThreadInfo& thread = it->second;
++
++      // Do not attempt to dump logs of the logd process because the gathering
++      // of logs can hang until a timeout occurs.
++      if (thread.thread_name != "logd") {
++        dump_logcat(&result, target_thread.pid);
++      }
+     }
+   }
+ 
+diff --git a/libprocessgroup/processgroup.cpp b/libprocessgroup/processgroup.cpp
+index 7648c21..de59f89 100644
+--- a/libprocessgroup/processgroup.cpp
++++ b/libprocessgroup/processgroup.cpp
+@@ -60,7 +60,10 @@ using namespace std::chrono_literals;
+ #define PROCESSGROUP_CGROUP_EVENTS_FILE "cgroup.events"
+ 
+ bool CgroupsAvailable() {
+-    static bool cgroups_available = access("/proc/cgroups", F_OK) == 0;
++    // mako: kernel 3.4 has no cgroup v2 (and no CONFIG_MEMCG either), so treat
++    // cgroups as unavailable. init then skips SetupCgroups and process groups
++    // fall back to kill(-pgid) in killProcessGroup()/sendSignalToProcessGroup().
++    static bool cgroups_available = false;
+     return cgroups_available;
+ }
+ 
+@@ -744,6 +747,12 @@ int createProcessGroup(uid_t uid, pid_t initialPid, bool memControl) {
+         return -EINVAL;
+     }
+ 
++    if (!CgroupsAvailable()) {
++        // mako: no cgroup v2 on kernel 3.4; nothing to set up. Killing process
++        // groups still works via kill(-pgid) in killProcessGroup().
++        return 0;
++    }
++
+     if (memControl && !UsePerAppMemcg()) {
+         LOG(ERROR) << "service memory controls are used without per-process memory cgroup support";
+         return -EINVAL;

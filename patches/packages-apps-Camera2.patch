@@ -1,0 +1,19 @@
+diff --git a/src/com/android/camera/one/v2/OneCameraImpl.java b/src/com/android/camera/one/v2/OneCameraImpl.java
+index d9c6b03..3858228 100644
+--- a/src/com/android/camera/one/v2/OneCameraImpl.java
++++ b/src/com/android/camera/one/v2/OneCameraImpl.java
+@@ -440,6 +440,14 @@ public class OneCameraImpl extends AbstractOneCamera {
+         }
+         try {
+             if (mCaptureSession != null) {
++                // Stop the repeating preview request before aborting and
++                // closing: the camera3 framework keeps auto-resubmitting it
++                // during CameraDevice.close()'s drain, and on this device
++                // (legacy HAL shim) the resubmissions stall the drain for
++                // the full 5s timeout (the app is no longer consuming
++                // buffers), which tears the session down in an error state
++                // and corrupts the kernel stream state for the next camera.
++                mCaptureSession.stopRepeating();
+                 mCaptureSession.abortCaptures();
+             }
+         } catch (CameraAccessException e) {

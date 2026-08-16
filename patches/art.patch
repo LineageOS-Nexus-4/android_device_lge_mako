@@ -1,0 +1,21 @@
+diff --git a/runtime/jit/jit_code_cache.cc b/runtime/jit/jit_code_cache.cc
+index c674d54..7ff0236 100644
+--- a/runtime/jit/jit_code_cache.cc
++++ b/runtime/jit/jit_code_cache.cc
+@@ -1877,6 +1877,7 @@ void JitCodeCache::DumpAllCompiledMethods(std::ostream& os) {
+ }
+ 
+ void JitCodeCache::PostForkChildAction(bool is_system_server, bool is_zygote) {
++  (void)is_system_server;
+   Thread* self = Thread::Current();
+ 
+   // Remove potential tasks that have been inherited from the zygote.
+@@ -1916,7 +1917,7 @@ void JitCodeCache::PostForkChildAction(bool is_system_server, bool is_zygote) {
+   std::string error_msg;
+   if (!private_region_.Initialize(initial_capacity,
+                                   max_capacity,
+-                                  /* rwx_memory_allowed= */ !is_system_server,
++                                  /* rwx_memory_allowed= */ true,
+                                   is_zygote,
+                                   &error_msg)) {
+     LOG(FATAL) << "Could not create private region after zygote fork: " << error_msg;
