@@ -12,7 +12,9 @@ mako_vibrator_libs = [
     "android.hardware.vibrator-V4-ndk",
     "android.hardware.common-V2-ndk",
     "android.hardware.common.fmq-V1-ndk",
-    "android.media.audio.common.types-V5-ndk",
+    // mako: audio.common.types frozen at v4 on A16; the A16 default manager
+    // no longer uses media audio types at all.
+
 ]
 
 cc_library_static {

@@ -1,0 +1,26 @@
+service vendor.ril-daemon /vendor/bin/hw/rild
+    class main
+    user radio
+    group radio cache inet misc audio log readproc wakelock
+    capabilities BLOCK_SUSPEND NET_ADMIN NET_RAW
+    disabled
+    override
+
+# mako bring-up: the MDM9615 needs a few seconds after kickstart (qcks,
+# class core) to boot and enumerate on HSIC USB. rild (class main) used to
+# probe QMI before the modem was up, so QCRIL declared RADIO_UNAVAILABLE and
+# never recovered (SIM absent until a manual `setprop ctl.restart
+# vendor.ril-daemon`). Gate rild start on vendor.radio.modem_ready, which
+# init.qcom.modem.sh raises once the modem is enumerated and QMI services
+# have had time to register.
+service vendor.radio-modem-wait /vendor/bin/init.qcom.modem.sh
+    user root
+    group root system
+    oneshot
+
+on boot
+    start vendor.radio-modem-wait
+
+on property:vendor.radio.modem_ready=1
+    start vendor.ril-daemon
+    start vendor.radio-mako-shim

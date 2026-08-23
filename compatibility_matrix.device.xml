@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<compatibility-matrix version="9.0" type="framework">
+    <sepolicy>
+        <kernel-sepolicy-version>30</kernel-sepolicy-version>
+        <sepolicy-version>29.0</sepolicy-version>
+        <sepolicy-version>30.0</sepolicy-version>
+        <sepolicy-version>31.0</sepolicy-version>
+        <sepolicy-version>32.0</sepolicy-version>
+        <sepolicy-version>33.0</sepolicy-version>
+        <sepolicy-version>34.0</sepolicy-version>
+        <sepolicy-version>202404</sepolicy-version>
+        <sepolicy-version>202504</sepolicy-version>
+    </sepolicy>
+    <hal format="hidl" optional="true">
+        <name>android.hardware.audio.effect</name>
+        <version>2.0</version>
+        <interface>
+            <name>IEffectsFactory</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
+    <hal format="hidl" optional="true">
+        <name>android.hardware.audio</name>
+        <version>2.0</version>
+        <interface>
+            <name>IDevicesFactory</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
+    <hal format="hidl" optional="true">
+        <name>android.hardware.configstore</name>
+        <version>1.1</version>
+        <interface>
+            <name>ISurfaceFlingerConfigs</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
+    <hal format="hidl" optional="true">
+        <name>android.hardware.light</name>
+        <version>2.0</version>
+        <interface>
+            <name>ILight</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
+    <hal format="aidl" optional="true">
+        <name>android.hardware.light</name>
+        <version>3</version>
+        <interface>
+            <name>ILights</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
+    <hal format="hidl" optional="true">
+        <name>android.hardware.memtrack</name>
+        <version>1.0</version>
+        <interface>
+            <name>IMemtrack</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
+    <hal format="hidl" optional="true">
+        <name>android.hardware.power</name>
+        <version>1.0</version>
+        <interface>
+            <name>IPower</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
+    <hal format="hidl" optional="true">
+        <name>android.hardware.power.stats</name>
+        <version>1.0</version>
+        <interface>
+            <name>IPowerStats</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
+    <hal format="hidl" optional="true">
+        <name>android.hardware.radio.deprecated</name>
+        <version>1.0</version>
+        <interface>
+            <name>IOemHook</name>
+            <instance>slot1</instance>
+        </interface>
+    </hal>
+    <hal format="aidl" optional="true">
+        <name>android.hardware.wifi.supplicant</name>
+        <version>3</version>
+        <interface>
+            <name>ISupplicant</name>
+            <instance>wifi_mainline_supplicant</instance>
+        </interface>
+    </hal>
+</compatibility-matrix>

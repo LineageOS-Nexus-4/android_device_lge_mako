@@ -104,16 +104,10 @@ ScopedAStatus Light::getLights(std::vector<HwLight>* _aidl_return) {
         light.id = id;
         light.ordinal = 0;
         light.type = type;
-        light.minUpdatePeriodMillis = 0;
         lights.push_back(light);
     }
     *_aidl_return = lights;
     return ScopedAStatus::ok();
-}
-
-ScopedAStatus Light::setLightEffects(
-        const std::vector<::aidl::android::hardware::light::HwLightEffect>& /*effects*/) {
-    return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
 }
 
 void Light::setAttentionLight(const HwLightState& state) {

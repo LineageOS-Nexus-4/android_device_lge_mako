@@ -49,8 +49,6 @@ struct Light : public ::aidl::android::hardware::light::BnLights {
     // Methods from ::aidl::android::hardware::light::ILights follow.
     ::ndk::ScopedAStatus setLightState(int32_t id, const HwLightState& state) override;
     ::ndk::ScopedAStatus getLights(std::vector<HwLight>* _aidl_return) override;
-    ::ndk::ScopedAStatus setLightEffects(
-            const std::vector<::aidl::android::hardware::light::HwLightEffect>& effects) override;
 
   private:
     void setAttentionLight(const HwLightState& state);

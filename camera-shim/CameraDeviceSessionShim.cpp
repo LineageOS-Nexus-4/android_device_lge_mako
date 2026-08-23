@@ -8,6 +8,8 @@
 
 #include <cinttypes>
 #include <cstring>
+#include <algorithm>
+#include <map>
 
 namespace aidl::android::hardware::camera::provider::shim {
 
@@ -23,6 +25,7 @@ using ::aidl::android::hardware::camera::device::CaptureResult;
 using ::aidl::android::hardware::common::NativeHandle;
 using ::aidl::android::hardware::camera::device::StreamBuffer;
 using ::aidl::android::hardware::camera::device::BufferStatus;
+using ::aidl::android::hardware::camera::device::ConfigureStreamsRet;
 using ::android::GraphicBufferMapper;
 
 namespace {
@@ -223,23 +226,58 @@ static void shimCleanCache(const native_handle_t* nh, void* vaddr, size_t length
     close(ionFd);
 }
 
-// Convert a packed NV21 frame to RGBA (BT.601 full range), scaling to the
-// destination size with nearest-neighbor sampling. Destination rows are
-// assumed packed (width * 4).
+// Compute the center-crop source window for a destination aspect ratio.
+// The camera2 contract scales the sensor crop to each stream size without
+// distorting it (the scaler crops the sensor region). The legacy HAL only
+// gives us fixed-size frames, so emulate the crop here: sample the largest
+// centered source rectangle with the destination's aspect ratio.
+static void cropWindow(int srcW, int srcH, int dstW, int dstH, int* cx0, int* cy0,
+                       int* cw, int* ch) {
+    if (srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0) {
+        *cx0 = 0; *cy0 = 0; *cw = srcW; *ch = srcH;
+        return;
+    }
+    const double dstAspect = static_cast<double>(dstW) / dstH;
+    const double srcAspect = static_cast<double>(srcW) / srcH;
+    if (srcAspect > dstAspect) {
+        // Source too wide: crop horizontally.
+        *cw = (dstAspect >= 1.0)
+                ? srcW
+                : static_cast<int>(srcH * dstAspect + 0.5);
+        // General: cw = srcH * dstAspect when that fits within srcW.
+        if (*cw > srcW) *cw = srcW;
+        *ch = static_cast<int>(*cw / dstAspect + 0.5);
+        if (*ch > srcH) { *ch = srcH; *cw = static_cast<int>(*ch * dstAspect + 0.5); }
+    } else {
+        *ch = static_cast<int>(srcW / dstAspect + 0.5);
+        if (*ch > srcH) *ch = srcH;
+        *cw = static_cast<int>(*ch * dstAspect + 0.5);
+        if (*cw > srcW) { *cw = srcW; *ch = static_cast<int>(*cw / dstAspect + 0.5); }
+    }
+    *cx0 = (srcW - *cw) / 2 & ~1;  // even-aligned for chroma subsampling
+    *cy0 = (srcH - *ch) / 2 & ~1;
+}
+
+// Center-crop a packed NV21 frame to the destination aspect and scale it to
+// RGBA (BT.601 full range), nearest-neighbor.
 static void nv21ToRgba(const uint8_t* src, uint8_t* dst, int srcW, int srcH,
                        int dstW, int dstH) {
     if (srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0) {
         return;
     }
+    int cx0, cy0, cw, ch;
+    cropWindow(srcW, srcH, dstW, dstH, &cx0, &cy0, &cw, &ch);
     const uint8_t* yPlane = src;
     const uint8_t* vuPlane = src + static_cast<size_t>(srcW) * srcH;
     for (int y = 0; y < dstH; y++) {
-        int sy = (y * srcH) / dstH;
+        int sy = cy0 + (y * ch) / dstH;
+        if (sy >= srcH) sy = srcH - 1;
         const uint8_t* yRow = yPlane + static_cast<size_t>(sy) * srcW;
         const uint8_t* vuRow = vuPlane + static_cast<size_t>(sy / 2) * srcW;
         uint8_t* dstRow = dst + static_cast<size_t>(y) * dstW * 4;
         for (int x = 0; x < dstW; x++) {
-            int sx = (x * srcW) / dstW;
+            int sx = cx0 + (x * cw) / dstW;
+            if (sx >= srcW) sx = srcW - 1;
             int yy = yRow[sx];
             int v = vuRow[sx & ~1];
             int u = vuRow[(sx & ~1) + 1];
@@ -257,6 +295,48 @@ static void nv21ToRgba(const uint8_t* src, uint8_t* dst, int srcW, int srcH,
         }
     }
 }
+
+// Center-crop a packed NV21 frame to the destination aspect and scale it to
+// packed NV12 (Y plane then interleaved UV, U first) — the color format the
+// msm8960 OMX video encoder consumes from gralloc encoder buffers.
+static void nv21ToNv12(const uint8_t* src, uint8_t* dst, int srcW, int srcH,
+                       int dstW, int dstH) {
+    if (srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0) {
+        return;
+    }
+    int cx0, cy0, cw, ch;
+    cropWindow(srcW, srcH, dstW, dstH, &cx0, &cy0, &cw, &ch);
+    const uint8_t* yPlane = src;
+    const uint8_t* vuPlane = src + static_cast<size_t>(srcW) * srcH;
+    uint8_t* dstY = dst;
+    uint8_t* dstUv = dst + static_cast<size_t>(dstW) * dstH;
+    for (int y = 0; y < dstH; y++) {
+        int sy = cy0 + (y * ch) / dstH;
+        if (sy >= srcH) sy = srcH - 1;
+        const uint8_t* yRow = yPlane + static_cast<size_t>(sy) * srcW;
+        uint8_t* dstRow = dstY + static_cast<size_t>(y) * dstW;
+        for (int x = 0; x < dstW; x++) {
+            int sx = cx0 + (x * cw) / dstW;
+            if (sx >= srcW) sx = srcW - 1;
+            dstRow[x] = yRow[sx];
+        }
+        if (y & 1) continue;
+        // Chroma: one UV row per two luma rows.
+        int cy = sy & ~1;
+        const uint8_t* vRow = vuPlane + static_cast<size_t>(cy / 2) * srcW;
+        uint8_t* uvRow = dstUv + static_cast<size_t>(y / 2) * dstW;
+        for (int x = 0; x < dstW; x += 2) {
+            int sx = cx0 + ((x) * cw) / dstW;
+            sx &= ~1;
+            if (sx >= srcW - 1) sx = srcW - 2;
+            int v = vRow[sx];
+            int u = vRow[sx + 1];
+            uvRow[x] = static_cast<uint8_t>(u);      // NV12: U first
+            uvRow[x + 1] = static_cast<uint8_t>(v);
+        }
+    }
+}
+
 }  // namespace
 
 // --- Dummy preview window ---------------------------------------------------
@@ -324,6 +404,8 @@ CameraDeviceSessionShim::CameraDeviceSessionShim(camera_module_t* module, int ca
       mJpegStreamId(-1),
       mJpegWidth(0),
       mJpegHeight(0),
+      mHalPreviewWidth(0),
+      mHalPreviewHeight(0),
       mActiveRequestId(-1),
       mNextFrameNumber(1),
       mConfigured(false),
@@ -404,6 +486,11 @@ void CameraDeviceSessionShim::halDeviceData(int32_t msgType, const camera_memory
     }
     if (msgType & CAMERA_MSG_PREVIEW_FRAME) {
         handlePreviewBuffer(buf, data->size);
+    } else if (msgType & CAMERA_MSG_VIDEO_FRAME) {
+        // The HAL record channel is never started (see configureStreams):
+        // late VIDEO_FRAME messages can only be leftovers from a previous
+        // session. Drop them without touching the VFE ring.
+        ALOGW("shim: dropping stray VIDEO_FRAME callback");
     } else if (msgType & CAMERA_MSG_COMPRESSED_IMAGE) {
         handleJpegBuffer(buf, data->size);
     }
@@ -462,6 +549,7 @@ bool CameraDeviceSessionShim::setHalParametersLocked(const std::string& params) 
 
 ndk::ScopedAStatus CameraDeviceSessionShim::close() {
     std::vector<PendingBuffer> drain;
+    std::map<int32_t, std::vector<PendingBuffer>> extraDrain;
     camera_device_t* dev = nullptr;
     bool previewRunning = false;
     camera_memory_t* previewMem = nullptr;
@@ -473,6 +561,12 @@ ndk::ScopedAStatus CameraDeviceSessionShim::close() {
             return ndk::ScopedAStatus::ok();
         }
         mClosed = true;
+        // Stop the watchdog before tearing anything down: it delivers
+        // results via mCallback and must not race the close drain.
+        mWatchdogExit.store(true);
+        if (mWatchdogThread.joinable()) {
+            mWatchdogThread.join();
+        }
         // Collect pending buffers so the framework's inflight tracking
         // drains and waitUntilDrained does not time out (which closes the
         // app with an error).
@@ -480,8 +574,12 @@ ndk::ScopedAStatus CameraDeviceSessionShim::close() {
             std::lock_guard<std::mutex> qlock(mQueueLock);
             drain.assign(mPendingPreview.begin(), mPendingPreview.end());
             drain.insert(drain.end(), mPendingJpeg.begin(), mPendingJpeg.end());
+            for (auto& [sid, q] : mPendingExtra) {
+                extraDrain[sid].insert(extraDrain[sid].end(), q.begin(), q.end());
+            }
             mPendingPreview.clear();
             mPendingJpeg.clear();
+            mPendingExtra.clear();
         }
         dev = mDevice;
         previewRunning = mPreviewRunning;
@@ -532,9 +630,39 @@ ndk::ScopedAStatus CameraDeviceSessionShim::close() {
             b.bufferId = p.bufferId;
             b.status = BufferStatus::ERROR;
             r.outputBuffers.push_back(std::move(b));
+            // The framework completes an inflight request only after its
+            // shutter arrives; without this the drain runs the full 5s
+            // timeout and the session tears down in an error state.
+            sendShutterNotify(p.frameNumber, ts);
             std::vector<CaptureResult> results;
             results.push_back(std::move(r));
             cb->processCaptureResult(results);
+        }
+        // Extra-stream parts: shutters already went out with the preview
+        // parts; return them as ERROR parts so those frames complete too.
+        for (auto& [sid, vec] : extraDrain) {
+            for (const auto& p : vec) {
+                CaptureResult r;
+                r.frameNumber = p.frameNumber;
+                r.fmqResultSize = 0;
+                r.partialResult = 1;
+                r.inputBuffer.streamId = -1;
+                const int64_t ts = systemTime(SYSTEM_TIME_MONOTONIC);
+                camera_metadata_t* fm = allocate_camera_metadata(4, 64);
+                add_camera_metadata_entry(fm, ANDROID_SENSOR_TIMESTAMP, &ts, 1);
+                size_t metaSize = get_camera_metadata_size(fm);
+                r.result.metadata.resize(metaSize);
+                memcpy(r.result.metadata.data(), fm, metaSize);
+                free_camera_metadata(fm);
+                StreamBuffer b{};
+                b.streamId = sid;
+                b.bufferId = p.bufferId;
+                b.status = BufferStatus::ERROR;
+                r.outputBuffers.push_back(std::move(b));
+                std::vector<CaptureResult> results;
+                results.push_back(std::move(r));
+                cb->processCaptureResult(results);
+            }
         }
     }
     return ndk::ScopedAStatus::ok();
@@ -555,10 +683,20 @@ ndk::ScopedAStatus CameraDeviceSessionShim::configureStreams(
     // A newly configured session is a fresh start: stop the flush-abort
     // window so its preview results are delivered normally.
     mFlushAbortTime.store(0);
+    if (!mWatchdogThread.joinable()) {
+        mWatchdogExit.store(false);
+        mWatchdogThread = std::thread([this]() { watchdogLoop(); });
+    }
     _aidl_return->clear();
     mPreviewStreamId = -1;
     mJpegStreamId = -1;
-    ++mSessionGeneration;
+    // A new configuration drops all pending buffers (their frames are gone).
+    {
+        std::lock_guard<std::mutex> qlock(mQueueLock);
+        mPendingExtra.clear();
+        mExtraStreams.clear();
+        ++mSessionGeneration;
+    }
     // A re-opened session must not inherit pending entries from a previous
     // one: the HAL delivers preview callbacks with index=0 and the shim pops
     // the oldest entry, so a stale {buffer 0, frame 0} from an old session
@@ -590,7 +728,7 @@ ndk::ScopedAStatus CameraDeviceSessionShim::configureStreams(
             std::string p = "picture-size=" + std::to_string(s.width) + "x" +
                             std::to_string(s.height) + ";";
             setHalParametersLocked(p);
-        } else if (streamIsPreview(s)) {
+        } else if (streamIsPreview(s) && mPreviewStreamId < 0) {
             mPreviewStreamId = s.id;
             mPreviewWidth = s.width;
             mPreviewHeight = s.height;
@@ -610,7 +748,31 @@ ndk::ScopedAStatus CameraDeviceSessionShim::configureStreams(
             // the Adreno 320; the shim converts NV21 -> RGBA when filling.
             hal.overrideFormat = ::aidl::android::hardware::graphics::common::PixelFormat::RGBA_8888;
         } else {
-            hal.supportOffline = false;
+            // Secondary non-JPEG stream (MediaRecorder encoder surface,
+            // snapshot ImageReader, extra GL target). Filled from the last
+            // preview frame on each HAL preview callback; never driven
+            // through the legacy HAL's record channel (starting it wedges
+            // this daemon).
+            const bool encoder = static_cast<int64_t>(s.usage) & 0x10000;
+            ExtraStream ex{};
+            ex.id = s.id;
+            ex.width = s.width;
+            ex.height = s.height;
+            ex.yuv = s.format != ::aidl::android::hardware::graphics::common::PixelFormat::
+                                    IMPLEMENTATION_DEFINED ||
+                     encoder;  // YUV requests and encoder surfaces get NV12
+            ex.rgba = !ex.yuv;
+            mExtraStreams.push_back(ex);
+            hal.maxBuffers = 4;
+            hal.producerUsage =
+                    static_cast<::aidl::android::hardware::graphics::common::BufferUsage>(48L);
+            // Allocate a concrete format we can write linearly: flexible YUV
+            // (NV12 bytes) for encoder/YUV consumers, RGBA for the rest.
+            hal.overrideFormat =
+                    ex.yuv ? ::aidl::android::hardware::graphics::common::PixelFormat::YCBCR_420_888
+                           : ::aidl::android::hardware::graphics::common::PixelFormat::RGBA_8888;
+            ALOGI("shim: extra stream id=%d %dx%d yuv=%d enc=%d", ex.id, ex.width, ex.height,
+                  ex.yuv ? 1 : 0, encoder ? 1 : 0);
         }
         _aidl_return->push_back(hal);
     }
@@ -618,8 +780,18 @@ ndk::ScopedAStatus CameraDeviceSessionShim::configureStreams(
     return ndk::ScopedAStatus::ok();
 }
 
+
+ndk::ScopedAStatus CameraDeviceSessionShim::configureStreamsV2(
+    const StreamConfiguration& requestedConfiguration, ConfigureStreamsRet* _aidl_return) {
+    std::vector<HalStream> halStreams;
+    ndk::ScopedAStatus status = configureStreams(requestedConfiguration, &halStreams);
+    if (status.isOk()) {
+        _aidl_return->halStreams = std::move(halStreams);
+    }
+    return status;
+}
 ndk::ScopedAStatus CameraDeviceSessionShim::constructDefaultRequestSettings(
-    RequestTemplate /*type*/, CameraMetadata* _aidl_return) {
+    RequestTemplate type, CameraMetadata* _aidl_return) {
     if (mDevice != nullptr) {
         // The legacy HAL needs the device opened for the defaults to apply,
         // which the cameraserver does before requesting templates.
@@ -628,13 +800,23 @@ ndk::ScopedAStatus CameraDeviceSessionShim::constructDefaultRequestSettings(
         }
     }
     camera_metadata_t* m = allocate_camera_metadata(32, 512);
-    const int32_t captureIntent = ANDROID_CONTROL_CAPTURE_INTENT_PREVIEW;
+    // Video templates drive the record path: continuous-video AF keeps the
+    // focus hunting behavior apps expect while recording, and the capture
+    // intent tells the framework this session targets the encoder.
+    const bool videoTemplate = (type == RequestTemplate::VIDEO_RECORD ||
+                                type == RequestTemplate::VIDEO_SNAPSHOT);
+    const int32_t captureIntent = videoTemplate
+            ? (type == RequestTemplate::VIDEO_RECORD
+                       ? ANDROID_CONTROL_CAPTURE_INTENT_VIDEO_RECORD
+                       : ANDROID_CONTROL_CAPTURE_INTENT_VIDEO_SNAPSHOT)
+            : ANDROID_CONTROL_CAPTURE_INTENT_PREVIEW;
     add_camera_metadata_entry(m, ANDROID_CONTROL_CAPTURE_INTENT, &captureIntent, 1);
     const int32_t controlMode = ANDROID_CONTROL_MODE_AUTO;
     add_camera_metadata_entry(m, ANDROID_CONTROL_MODE, &controlMode, 1);
     const int32_t aeMode = ANDROID_CONTROL_AE_MODE_ON;
     add_camera_metadata_entry(m, ANDROID_CONTROL_AE_MODE, &aeMode, 1);
-    const int32_t afMode = ANDROID_CONTROL_AF_MODE_AUTO;
+    const int32_t afMode = videoTemplate ? ANDROID_CONTROL_AF_MODE_CONTINUOUS_VIDEO
+                                         : ANDROID_CONTROL_AF_MODE_AUTO;
     add_camera_metadata_entry(m, ANDROID_CONTROL_AF_MODE, &afMode, 1);
     const int32_t awbMode = ANDROID_CONTROL_AWB_MODE_AUTO;
     add_camera_metadata_entry(m, ANDROID_CONTROL_AWB_MODE, &awbMode, 1);
@@ -725,9 +907,49 @@ ndk::ScopedAStatus CameraDeviceSessionShim::flush() {
         b.bufferId = p.bufferId;
         b.status = BufferStatus::ERROR;
         r.outputBuffers.push_back(std::move(b));
+        // The framework only completes an inflight request after its shutter
+        // notification arrives ("flushInflightRequests: Frame N | Timestamp:
+        // 0" == held forever). Without this the drain always runs the full
+        // 5s timeout and tears the session down in an error state.
+        sendShutterNotify(p.frameNumber, ts);
         std::vector<CaptureResult> results;
         results.push_back(std::move(r));
         mCallback->processCaptureResult(results);
+    }
+    // Extra-stream buffers: their frames' shutters went out with the preview
+    // part (or in the drain above); return them as ERROR parts so those
+    // frames complete too.
+    std::map<int32_t, std::vector<PendingBuffer>> extraDrain;
+    {
+        std::lock_guard<std::mutex> qlock(mQueueLock);
+        for (auto& [sid, q] : mPendingExtra) {
+            extraDrain[sid].assign(q.begin(), q.end());
+        }
+        mPendingExtra.clear();
+    }
+    for (auto& [sid, vec] : extraDrain) {
+        for (const auto& p : vec) {
+            CaptureResult r;
+            r.frameNumber = p.frameNumber;
+            r.fmqResultSize = 0;
+            r.partialResult = 1;
+            r.inputBuffer.streamId = -1;
+            const int64_t ts = systemTime(SYSTEM_TIME_MONOTONIC);
+            camera_metadata_t* fm = allocate_camera_metadata(4, 64);
+            add_camera_metadata_entry(fm, ANDROID_SENSOR_TIMESTAMP, &ts, 1);
+            size_t metaSize = get_camera_metadata_size(fm);
+            r.result.metadata.resize(metaSize);
+            memcpy(r.result.metadata.data(), fm, metaSize);
+            free_camera_metadata(fm);
+            StreamBuffer b{};
+            b.streamId = sid;
+            b.bufferId = p.bufferId;
+            b.status = BufferStatus::ERROR;
+            r.outputBuffers.push_back(std::move(b));
+            std::vector<CaptureResult> results;
+            results.push_back(std::move(r));
+            mCallback->processCaptureResult(results);
+        }
     }
     return ndk::ScopedAStatus::ok();
 }
@@ -924,12 +1146,28 @@ void CameraDeviceSessionShim::processRequest(std::unique_lock<std::mutex>& lock,
                       (buf.buffer.fds.size() > 0) ? buf.buffer.fds[0].get() : -2);
             }
         }
-        if (buf.streamId == mPreviewStreamId) {
+        {
             std::lock_guard<std::mutex> qlock(mQueueLock);
-            mPendingPreview.push_back({buf.bufferId, static_cast<uint32_t>(request.frameNumber)});
-        } else if (buf.streamId == mJpegStreamId) {
-            std::lock_guard<std::mutex> qlock(mQueueLock);
-            mPendingJpeg.push_back({buf.bufferId, static_cast<uint32_t>(request.frameNumber)});
+            if (buf.streamId == mPreviewStreamId) {
+                mPendingPreview.push_back({buf.bufferId,
+                                           static_cast<uint32_t>(request.frameNumber),
+                                           systemTime(SYSTEM_TIME_MONOTONIC)});
+            } else if (buf.streamId == mJpegStreamId) {
+                mPendingJpeg.push_back({buf.bufferId,
+                                        static_cast<uint32_t>(request.frameNumber),
+                                        systemTime(SYSTEM_TIME_MONOTONIC)});
+            } else if (mPendingExtra.count(buf.streamId) > 0 ||
+                       [&]() {
+                           for (const auto& ex : mExtraStreams) {
+                               if (ex.id == buf.streamId) return true;
+                           }
+                           return false;
+                       }()) {
+                mPendingExtra[buf.streamId].push_back({buf.bufferId,
+                                                       static_cast<uint32_t>(
+                                                               request.frameNumber),
+                                                       systemTime(SYSTEM_TIME_MONOTONIC)});
+            }
         }
     }
 
@@ -958,9 +1196,9 @@ void CameraDeviceSessionShim::processRequest(std::unique_lock<std::mutex>& lock,
         } else {
             qlock.unlock();
         }
-        if (mPreviewWidth > 0 && mPreviewHeight > 0) {
-            std::string p = "preview-size=" + std::to_string(mPreviewWidth) + "x" +
-                            std::to_string(mPreviewHeight) + ";";
+        if (chooseHalPreviewSizeLocked()) {
+            std::string p = "preview-size=" + std::to_string(mHalPreviewWidth) + "x" +
+                            std::to_string(mHalPreviewHeight) + ";";
             setHalParametersLocked(p);
         }
         if (mDevice->ops->start_preview != nullptr) {
@@ -1027,6 +1265,12 @@ bool CameraDeviceSessionShim::fillOutputBuffer(int64_t bufferId, int32_t streamI
     }
     int width = (streamId == mJpegStreamId) ? mJpegWidth : mPreviewWidth;
     int height = (streamId == mJpegStreamId) ? mJpegHeight : mPreviewHeight;
+    for (const auto& ex : mExtraStreams) {
+        if (ex.id == streamId) {
+            width = ex.width;
+            height = ex.height;
+        }
+    }
     // The handle's 'base' field carries the allocating process's mapping
     // address; clear it so gralloc performs a real map in our process.
     native_handle_t* nh = it->second;
@@ -1070,9 +1314,13 @@ bool CameraDeviceSessionShim::fillOutputBuffer(int64_t bufferId, int32_t streamI
         // The HAL's preview callback delivers the camera daemon's NV21 frame
         // (written into the display window buffers). Derive the real frame
         // geometry from the private handles: src = the window buffer's dims,
-        // dst = the app buffer's dims.
-        int srcW = 640;
-        int srcH = 480;
+        // dst = the app buffer's dims. The converter center-crops to the
+        // destination aspect (camera2 scaler semantics) — a plain stretch
+        // distorts the viewfinder whenever stream and HAL aspects differ.
+        int srcW = mHalPreviewWidth;
+        int srcH = mHalPreviewHeight;
+        if (srcW <= 0) srcW = 640;
+        if (srcH <= 0) srcH = 480;
         if (!mShimWindow.handles.empty() && mShimWindow.handles[0] != nullptr) {
             const native_handle_t* wh = mShimWindow.handles[0];
             if (wh->numInts >= 11) {
@@ -1089,7 +1337,7 @@ bool CameraDeviceSessionShim::fillOutputBuffer(int64_t bufferId, int32_t streamI
         ALOGI("shim: convert %dx%d -> %dx%d", srcW, srcH, dstW, dstH);
         nv21ToRgba(static_cast<const uint8_t*>(data), static_cast<uint8_t*>(vaddr),
                    srcW, srcH, dstW, dstH);
-    } else {
+    } else if (streamId == mJpegStreamId) {
         memcpy(vaddr, data, size);
         // Append the camera3 JPEG blob footer at the end of the buffer so the
         // app's ImageReader can read the JPEG size (AIDL CameraBlob format:
@@ -1102,6 +1350,48 @@ bool CameraDeviceSessionShim::fillOutputBuffer(int64_t bufferId, int32_t streamI
                 uint32_t jsz = static_cast<uint32_t>(size);
                 memcpy(footer, &id, 4);
                 memcpy(footer + 4, &jsz, 4);
+            }
+        }
+    } else {
+        // Extra stream (or unknown): convert from the last preview frame.
+        // Encoder/YUV consumers get NV12, image/GL consumers get RGBA.
+        const ExtraStream* ex = nullptr;
+        for (const auto& e : mExtraStreams) {
+            if (e.id == streamId) {
+                ex = &e;
+            }
+        }
+        int srcW = mHalPreviewWidth;
+        int srcH = mHalPreviewHeight;
+        if (srcW <= 0) srcW = 640;
+        if (srcH <= 0) srcH = 480;
+        if (!mShimWindow.handles.empty() && mShimWindow.handles[0] != nullptr) {
+            const native_handle_t* wh = mShimWindow.handles[0];
+            if (wh->numInts >= 11) {
+                srcW = wh->data[wh->numFds + 9];
+                srcH = wh->data[wh->numFds + 10];
+            }
+        }
+        if (ex == nullptr) {
+            memcpy(vaddr, data, std::min(size, bufSize));
+        } else {
+            const uint8_t* src = static_cast<const uint8_t*>(data);
+            size_t need = static_cast<size_t>(srcW) * srcH * 3 / 2;
+            if (mLastPreviewFrame.size() >= need) {
+                src = mLastPreviewFrame.data();
+            }
+            int dstW = width;
+            int dstH = height;
+            if (nh->numInts >= 11) {
+                dstW = nh->data[nh->numFds + 9];
+                dstH = nh->data[nh->numFds + 10];
+            }
+            ALOGI("shim: extra convert id=%d %dx%d -> %dx%d yuv=%d", ex->id, srcW, srcH,
+                  dstW, dstH, ex->yuv ? 1 : 0);
+            if (ex->yuv) {
+                nv21ToNv12(src, static_cast<uint8_t*>(vaddr), srcW, srcH, dstW, dstH);
+            } else {
+                nv21ToRgba(src, static_cast<uint8_t*>(vaddr), srcW, srcH, dstW, dstH);
             }
         }
     }
@@ -1191,6 +1481,26 @@ void CameraDeviceSessionShim::handlePreviewBuffer(const void* data, size_t size)
     out.bufferId = pending.bufferId;
     out.status = flushAbortedDelivery() ? BufferStatus::ERROR : BufferStatus::OK;
     result.outputBuffers.push_back(std::move(out));
+    // Drain one pending buffer per extra stream (encoder surface,
+    // ImageReaders, ...) into this same frame's result: one request carries
+    // all its buffers and the framework completes the frame only when every
+    // part has arrived.
+    {
+        std::lock_guard<std::mutex> qlock(mQueueLock);
+        for (auto& [sid, q] : mPendingExtra) {
+            if (q.empty()) {
+                continue;
+            }
+            PendingBuffer ep = q.front();
+            q.pop_front();
+            fillOutputBuffer(ep.bufferId, sid, data, size);
+            StreamBuffer eb{};
+            eb.streamId = sid;
+            eb.bufferId = ep.bufferId;
+            eb.status = flushAbortedDelivery() ? BufferStatus::ERROR : BufferStatus::OK;
+            result.outputBuffers.push_back(std::move(eb));
+        }
+    }
     std::vector<CaptureResult> results;
     results.push_back(std::move(result));
     mCallback->processCaptureResult(results);
@@ -1228,6 +1538,92 @@ bool CameraDeviceSessionShim::flushAbortedDelivery() {
         return false;
     }
     return true;
+}
+
+// Completes a pending entry as an ERROR result; withShutter controls whether
+// the frame's shutter notification is sent (required for the framework to
+// retire the inflight request; record parts rely on their preview part's
+// shutter and must NOT send a second one).
+void CameraDeviceSessionShim::deliverErrorResult(const PendingBuffer& p,
+                                                 int32_t streamId, bool withShutter) {
+    if (mCallback == nullptr) {
+        return;
+    }
+    const int64_t ts = systemTime(SYSTEM_TIME_MONOTONIC);
+    CaptureResult r;
+    r.frameNumber = p.frameNumber;
+    r.fmqResultSize = 0;
+    r.partialResult = 1;
+    r.inputBuffer.streamId = -1;
+    camera_metadata_t* fm = allocate_camera_metadata(4, 64);
+    add_camera_metadata_entry(fm, ANDROID_SENSOR_TIMESTAMP, &ts, 1);
+    const int32_t aeState = ANDROID_CONTROL_AE_STATE_INACTIVE;
+    add_camera_metadata_entry(fm, ANDROID_CONTROL_AE_STATE, &aeState, 1);
+    const int32_t afState = ANDROID_CONTROL_AF_STATE_INACTIVE;
+    add_camera_metadata_entry(fm, ANDROID_CONTROL_AF_STATE, &afState, 1);
+    size_t metaSize = get_camera_metadata_size(fm);
+    r.result.metadata.resize(metaSize);
+    memcpy(r.result.metadata.data(), fm, metaSize);
+    free_camera_metadata(fm);
+    StreamBuffer b{};
+    b.streamId = streamId;
+    b.bufferId = p.bufferId;
+    b.status = BufferStatus::ERROR;
+    r.outputBuffers.push_back(std::move(b));
+    if (withShutter) {
+        sendShutterNotify(p.frameNumber, ts);
+    }
+    std::vector<CaptureResult> results;
+    results.push_back(std::move(r));
+    mCallback->processCaptureResult(results);
+}
+
+// Watchdog thread body: completes pending entries older than 1s as error
+// results. Preview entries carry their frame's only shutter (sent here);
+// extra-stream entries never send shutters (their preview part does). Skipped
+// while a JPEG capture is in flight — the capture flow owns those frames'
+// delivery order (out-of-order shutters kill the session).
+void CameraDeviceSessionShim::watchdogLoop() {
+    while (!mWatchdogExit.load()) {
+        usleep(300000);
+        if (mWatchdogExit.load()) {
+            break;
+        }
+        std::vector<PendingBuffer> stalePreview;
+        std::map<int32_t, std::vector<PendingBuffer>> staleExtra;
+        {
+            std::lock_guard<std::mutex> qlock(mQueueLock);
+            const int64_t now = systemTime(SYSTEM_TIME_MONOTONIC);
+            while (!mPendingPreview.empty() &&
+                   mPendingPreview.front().enqueuedAt != 0 &&
+                   now - mPendingPreview.front().enqueuedAt > 1000000000LL) {
+                stalePreview.push_back(mPendingPreview.front());
+                mPendingPreview.pop_front();
+            }
+            for (auto& [sid, q] : mPendingExtra) {
+                while (!q.empty() && q.front().enqueuedAt != 0 &&
+                       now - q.front().enqueuedAt > 1000000000LL) {
+                    staleExtra[sid].push_back(q.front());
+                    q.pop_front();
+                }
+            }
+        }
+        const bool captureInFlight = mCaptureInFlight;
+        for (const auto& p : stalePreview) {
+            if (captureInFlight) {
+                break;  // capture flow owns ordering; leave them queued
+            }
+            ALOGW("shim: watchdog completing stale preview frame %d", p.frameNumber);
+            deliverErrorResult(p, mPreviewStreamId, /*withShutter=*/true);
+        }
+        for (auto& [sid, vec] : staleExtra) {
+            for (const auto& p : vec) {
+                ALOGW("shim: watchdog completing stale extra frame %d stream %d",
+                      p.frameNumber, sid);
+                deliverErrorResult(p, sid, /*withShutter=*/false);
+            }
+        }
+    }
 }
 
 // Completes one in-flight preview request whose preview callback never
@@ -1477,6 +1873,94 @@ void CameraDeviceSessionShim::handleJpegBuffer(const void* data, size_t size) {
     }
 }
 
+std::string CameraDeviceSessionShim::readHalParameterLocked(const std::string& key) {
+    if (mDevice == nullptr || mDevice->ops->get_parameters == nullptr) {
+        return "";
+    }
+    char* full = mDevice->ops->get_parameters(mDevice);
+    if (full == nullptr) {
+        return "";
+    }
+    std::string merged(full);
+    free(full);
+    const std::string needle = key + "=";
+    size_t pos = merged.find(needle);
+    if (pos == std::string::npos) {
+        return "";
+    }
+    size_t end = merged.find(';', pos);
+    if (end == std::string::npos) {
+        end = merged.size();
+    }
+    return merged.substr(pos + needle.size(), end - pos - needle.size());
+}
+
+// Pick the HAL preview size whose aspect ratio best matches the requested
+// preview stream, choosing the candidate whose AREA is closest to the
+// stream's (bigger is NOT better: 1280x960 preview runs at ~2fps on this
+// daemon while 640x480 does 30fps; 1280x720 produces NO frames at all).
+// The center-crop converter handles the resolution difference; matching the
+// aspect avoids distortion. Hard cap at 640x480: the only size verified to
+// stream reliably on this daemon.
+bool CameraDeviceSessionShim::chooseHalPreviewSizeLocked() {
+    if (mPreviewWidth <= 0 || mPreviewHeight <= 0) {
+        return false;
+    }
+    const std::string values = readHalParameterLocked("preview-size-values");
+    if (values.empty()) {
+        return false;
+    }
+    const double wantAspect = static_cast<double>(mPreviewWidth) / mPreviewHeight;
+    const long capArea = 640L * 480L;  // known-good ceiling for this VFE
+    // Target area for the closest-area score: the preview stream size, so
+    // snapshots come out near viewfinder scale while respecting the cap.
+    const long wantArea =
+            static_cast<long>(mPreviewWidth) * static_cast<long>(mPreviewHeight);
+    long bestW = 0, bestH = 0;
+    double bestErr = 1e9;
+    size_t start = 0;
+    while (start < values.size()) {
+        size_t end = values.find(',', start);
+        if (end == std::string::npos) {
+            end = values.size();
+        }
+        std::string cand = values.substr(start, end - start);
+        int w = 0, h = 0;
+        if (sscanf(cand.c_str(), "%dx%d", &w, &h) == 2 && w > 0 && h > 0) {
+            const double aspect = static_cast<double>(w) / h;
+            const double aspectErr = aspect > wantAspect ? aspect / wantAspect
+                                                         : wantAspect / aspect;
+            // Accept up to ~34% aspect deviation as a match: with the hard
+            // area cap only 4:3 candidates survive anyway, and a cropped
+            // 4:3 viewfinder beats no frames at all.
+            if (aspectErr <= 1.34) {
+                const double areaErr =
+                        (static_cast<double>(w) * h) / wantArea;
+                const double score = aspectErr * 10.0 +
+                        (areaErr > 1.0 ? areaErr : 1.0 / areaErr);
+                if (score < bestErr &&
+                        static_cast<long>(w) * static_cast<long>(h) <= capArea) {
+                    bestErr = score;
+                    bestW = w;
+                    bestH = h;
+                }
+            }
+        }
+        start = end + 1;
+    }
+    if (bestW <= 0) {
+        return false;
+    }
+    if (bestW == mHalPreviewWidth && bestH == mHalPreviewHeight) {
+        return false;  // unchanged; skip the parameter write
+    }
+    mHalPreviewWidth = bestW;
+    mHalPreviewHeight = bestH;
+    ALOGI("shim: hal preview size %dx%d for stream %dx%d", bestW, bestH, mPreviewWidth,
+          mPreviewHeight);
+    return true;
+}
+
 ndk::ScopedAStatus CameraDeviceSessionShim::signalStreamFlush(
     const std::vector<int32_t>& /*streamIds*/, int32_t /*streamConfigCounter*/) {
     return ndk::ScopedAStatus::ok();
@@ -1494,18 +1978,6 @@ ndk::ScopedAStatus CameraDeviceSessionShim::switchToOffline(
 
 ndk::ScopedAStatus CameraDeviceSessionShim::repeatingRequestEnd(
     int32_t /*frameNumber*/, const std::vector<int32_t>& /*streamIds*/) {
-    return ndk::ScopedAStatus::ok();
-}
-
-ndk::ScopedAStatus CameraDeviceSessionShim::configureStreamsV2(
-    const StreamConfiguration& requestedConfiguration,
-    ::aidl::android::hardware::camera::device::ConfigureStreamsRet* _aidl_return) {
-    std::vector<HalStream> halStreams;
-    auto status = configureStreams(requestedConfiguration, &halStreams);
-    if (!status.isOk()) {
-        return status;
-    }
-    _aidl_return->halStreams = halStreams;
     return ndk::ScopedAStatus::ok();
 }
 

@@ -1,4 +1,4 @@
-<manifest version="1.0" type="device" target-level="legacy">
+<manifest version="1.0" type="device" target-level="5">
     <hal format="aidl">
         <name>android.hardware.camera.provider</name>
         <version>3</version>

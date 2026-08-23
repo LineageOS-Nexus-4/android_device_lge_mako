@@ -407,30 +407,4 @@ ScopedAStatus RadioNetwork::isSatelliteEnabledForCarrier(int32_t serial) {
     return ScopedAStatus::ok();
 }
 
-ScopedAStatus RadioNetwork::setSatelliteNetworkInfo(int32_t serial,
-                                                    const ar::network::SatelliteNetworkInfo&) {
-    if (mCtx->networkResponse) mCtx->networkResponse->setSatelliteNetworkInfoResponse(
-            mCtx->notSupported(serial));
-    return ScopedAStatus::ok();
-}
-
-ScopedAStatus RadioNetwork::enablePrioritizedNetworkScan(
-        int32_t serial, const ar::network::PrioritizedNetworkScanRequest&) {
-    if (mCtx->networkResponse) mCtx->networkResponse->enablePrioritizedNetworkScanResponse(
-            mCtx->notSupported(serial));
-    return ScopedAStatus::ok();
-}
-
-ScopedAStatus RadioNetwork::disablePrioritizedNetworkScan(int32_t serial) {
-    if (mCtx->networkResponse) mCtx->networkResponse->disablePrioritizedNetworkScanResponse(
-            mCtx->notSupported(serial));
-    return ScopedAStatus::ok();
-}
-
-ScopedAStatus RadioNetwork::getSupportedNetworkAlertCategories(int32_t serial) {
-    if (mCtx->networkResponse) mCtx->networkResponse->getSupportedNetworkAlertCategoriesResponse(
-            mCtx->notSupported(serial), {});
-    return ScopedAStatus::ok();
-}
-
 }  // namespace android::hardware::radio::shim

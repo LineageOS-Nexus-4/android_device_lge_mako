@@ -13,8 +13,8 @@ cc_binary {
         "CameraDeviceSessionShim.cpp",
     ],
     shared_libs: [
-        "android.hardware.camera.provider-V4-ndk",
-        "android.hardware.camera.device-V4-ndk",
+        "android.hardware.camera.provider-V3-ndk",
+        "android.hardware.camera.device-V3-ndk",
         "libcamera_metadata",
         "libhardware",
         "libui",

@@ -15,9 +15,11 @@
 #
 
 PRODUCT_MAKEFILES := \
-    $(LOCAL_DIR)/aosp_mako.mk
+    $(LOCAL_DIR)/aosp_mako.mk \
+    $(LOCAL_DIR)/lineage_mako.mk
 
 COMMON_LUNCH_CHOICES := \
     aosp_mako-trunk_staging-eng \
     aosp_mako-trunk_staging-userdebug \
-    aosp_mako-trunk_staging-user
+    lineage_mako-bp4a-eng \
+    lineage_mako-bp4a-userdebug

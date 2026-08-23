@@ -70,12 +70,6 @@ ScopedAStatus RadioConfig::getHalDeviceCapabilities(int32_t serial) {
     return ScopedAStatus::ok();
 }
 
-ScopedAStatus RadioConfig::rebootModem(int32_t serial) {
-    if (!mCtx->configResponse) return ScopedAStatus::ok();
-    mCtx->configResponse->rebootModemResponse(mCtx->noError(serial));
-    return ScopedAStatus::ok();
-}
-
 ScopedAStatus RadioConfig::getSimultaneousCallingSupport(int32_t serial) {
     if (!mCtx->configResponse) return ScopedAStatus::ok();
     mCtx->configResponse->getSimultaneousCallingSupportResponse(mCtx->notSupported(serial), {});

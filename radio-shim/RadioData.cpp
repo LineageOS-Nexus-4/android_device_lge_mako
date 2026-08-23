@@ -201,15 +201,16 @@ ScopedAStatus RadioData::setUserDataEnabled(int32_t serial, bool) {
     return ScopedAStatus::ok();
 }
 
-ScopedAStatus RadioData::setUserDataRoamingEnabled(int32_t serial, bool) {
-    if (mCtx->dataResponse) mCtx->dataResponse->setUserDataRoamingEnabledResponse(
+ScopedAStatus RadioData::notifyImsDataNetwork(int32_t serial, ar::AccessNetwork,
+                                             ar::data::DataNetworkState,
+                                             ar::data::TransportType, int32_t) {
+    if (mCtx->dataResponse) mCtx->dataResponse->notifyImsDataNetworkResponse(
             mCtx->notSupported(serial));
     return ScopedAStatus::ok();
 }
 
-ScopedAStatus RadioData::notifyImsDataNetwork(int32_t serial,
-                                              const ar::data::ImsDataNetworkInfo&) {
-    if (mCtx->dataResponse) mCtx->dataResponse->notifyImsDataNetworkResponse(
+ScopedAStatus RadioData::setUserDataRoamingEnabled(int32_t serial, bool) {
+    if (mCtx->dataResponse) mCtx->dataResponse->setUserDataRoamingEnabledResponse(
             mCtx->notSupported(serial));
     return ScopedAStatus::ok();
 }

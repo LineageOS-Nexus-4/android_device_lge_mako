@@ -23,6 +23,7 @@
 # Soong
 PRODUCT_SOONG_NAMESPACES += $(LOCAL_PATH)
 PRODUCT_SOONG_NAMESPACES += hardware/qcom/wlan/legacy
+PRODUCT_ENABLE_UFFD_GC := false  # kernel 3.4 lacks userfaultfd
 
 # Overlays
 DEVICE_PACKAGE_OVERLAYS += \
@@ -80,8 +81,7 @@ PRODUCT_PACKAGES += \
 # mm-camera blobs (vendor/lge/mako/proprietary).
 PRODUCT_PACKAGES += \
     android.hardware.camera.provider.shim-service \
-    mm-qcamera-daemon \
-    v4l2-qcamera-app \
+    camera.mako \
     liboemcamera \
     libmmcamera_faceproc \
     libmmcamera_statsproc31 \
@@ -143,7 +143,6 @@ PRODUCT_PACKAGES += \
     android.hardware.memtrack@1.0-service \
     hwcomposer.msm8960 \
     gralloc.msm8960 \
-    copybit.msm8960 \
     memtrack.msm8960
 
 # GPS (gpsOne): legacy gps.msm8960 + GNSS 1.0 HIDL service
@@ -265,6 +264,7 @@ PRODUCT_PACKAGES += \
     init.mako.usb.rc \
     init.qcom.devstart.sh \
     init.qcom.devwait.sh \
+    init.qcom.modem.sh \
     ueventd.mako.rc
 
 PRODUCT_COPY_FILES += \

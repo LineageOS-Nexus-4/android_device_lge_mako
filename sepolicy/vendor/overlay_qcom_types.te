@@ -1,0 +1,13 @@
+# mako bring-up: types referenced by device/lineage/sepolicy/qcom overlays
+# that the 16.0-era QTI sepolicy tree does not declare.
+#
+# location_domain is m4-rewritten to vendor_location by the BOARD_SEPOLICY_M4DEFS
+# in device/lineage/sepolicy/qcom/sepolicy.mk (first branch -- mako includes
+# neither sepolicy-legacy-um nor sepolicy_vndr).
+# vendor_hal_*_exec: init_daemon_domain(hal_gnss_qti/hal_perf_default) expands
+# to vendor_hal_*_exec, which the m4 word-boundary rewrite leaves undeclared.
+# vendor_fm_app / vendor_hal_soter* come from device/qcom/sepolicy/generic/public
+# (wired via SYSTEM_EXT_PUBLIC_SEPOLICY_DIRS in BoardConfig.mk).
+type location_domain, domain;
+type vendor_hal_gnss_qti_exec, exec_type, vendor_file_type, file_type;
+type vendor_hal_perf_default_exec, exec_type, vendor_file_type, file_type;

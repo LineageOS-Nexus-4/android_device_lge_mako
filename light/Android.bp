@@ -9,7 +9,8 @@ cc_binary {
         "liblog",
         "libutils",
         "libbinder_ndk",
-        "android.hardware.light-V3-ndk",
+        // mako: light is frozen at v2 on A16 (no V3)
+        "android.hardware.light-V2-ndk",
     ],
     vendor: true,
     vintf_fragments: ["android.hardware.light.ILights-service-mako.xml"],

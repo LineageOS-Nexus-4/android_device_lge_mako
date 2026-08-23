@@ -61,6 +61,9 @@ class CameraDeviceSessionShim : public BnCameraDeviceSession {
     ndk::ScopedAStatus configureStreams(
         const StreamConfiguration& requestedConfiguration,
         std::vector<HalStream>* _aidl_return) override;
+    ndk::ScopedAStatus configureStreamsV2(
+        const StreamConfiguration& requestedConfiguration,
+        ::aidl::android::hardware::camera::device::ConfigureStreamsRet* _aidl_return) override;
     ndk::ScopedAStatus constructDefaultRequestSettings(
         RequestTemplate type, CameraMetadata* _aidl_return) override;
     ndk::ScopedAStatus flush() override;
@@ -89,14 +92,23 @@ class CameraDeviceSessionShim : public BnCameraDeviceSession {
             _aidl_return) override;
     ndk::ScopedAStatus repeatingRequestEnd(
         int32_t frameNumber, const std::vector<int32_t>& streamIds) override;
-    ndk::ScopedAStatus configureStreamsV2(
-        const StreamConfiguration& requestedConfiguration,
-        ::aidl::android::hardware::camera::device::ConfigureStreamsRet* _aidl_return) override;
 
   private:
     struct PendingBuffer {
         int64_t bufferId;
         uint32_t frameNumber;
+        int64_t enqueuedAt = 0;  // monotonic; drives the stale-entry watchdog
+    };
+
+    // Any configured non-JPEG stream other than the primary preview one
+    // (encoder surfaces, snapshot ImageReaders, secondary GL targets).
+    // Filled from the last preview frame on every HAL preview callback.
+    struct ExtraStream {
+        int id;
+        int width;
+        int height;
+        bool yuv;      // fill with NV12 (encoder/YUV consumers)
+        bool rgba;     // fill with RGBA (GPU/CPU image consumers)
     };
 
     // HAL 1.0 callbacks
@@ -112,8 +124,12 @@ class CameraDeviceSessionShim : public BnCameraDeviceSession {
     void halDeviceData(int32_t msgType, const camera_memory_t* data, unsigned int index);
     bool openHalDeviceLocked();
     bool setHalParametersLocked(const std::string& params);
+    std::string readHalParameterLocked(const std::string& key);
+    bool chooseHalPreviewSizeLocked();
     void handlePreviewBuffer(const void* data, size_t size);
     void handleJpegBuffer(const void* data, size_t size);
+    void deliverErrorResult(const PendingBuffer& p, int32_t streamId, bool withShutter);
+    void watchdogLoop();
     void deliverPreviewResult(const PendingBuffer& pv);
     bool flushAbortedDelivery();
     void sendShutterNotify(uint32_t frameNumber, int64_t timestamp);
@@ -146,6 +162,13 @@ class CameraDeviceSessionShim : public BnCameraDeviceSession {
     int mJpegStreamId;
     int mJpegWidth;
     int mJpegHeight;
+    // Secondary non-JPEG streams (encoder surfaces, ImageReaders, extra GL
+    // targets). Filled from the last preview frame on each HAL callback.
+    std::vector<ExtraStream> mExtraStreams;
+    // The HAL preview size chosen for the current preview stream (best
+    // aspect match from preview-size-values; may differ from the stream).
+    int mHalPreviewWidth;
+    int mHalPreviewHeight;
     int mActiveRequestId;
     uint32_t mNextFrameNumber;
     bool mConfigured;
@@ -156,6 +179,13 @@ class CameraDeviceSessionShim : public BnCameraDeviceSession {
     std::map<int64_t, native_handle_t*> mBufferHandles;
     std::deque<PendingBuffer> mPendingPreview;
     std::deque<PendingBuffer> mPendingJpeg;
+    // Per-extra-stream pending queues (keyed by stream id).
+    std::map<int32_t, std::deque<PendingBuffer>> mPendingExtra;
+    // Watchdog thread: completes pending entries older than 1s as error
+    // results so a stalled/silent HAL can never wedge the framework's
+    // 5s waitUntilDrained (the source of every close/switch wedge).
+    std::thread mWatchdogThread;
+    std::atomic<bool> mWatchdogExit{false};
     // Last real preview frame (NV21): the capture frame's preview buffer
     // never gets a real frame because the legacy HAL stops the preview
     // stream for snapshot, so it is filled with this postview copy.

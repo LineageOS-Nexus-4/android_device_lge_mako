@@ -43,8 +43,10 @@ class RadioData : public ar::data::BnRadioData {
     ::ndk::ScopedAStatus stopKeepalive(int32_t serial, int32_t sessionHandle) override;
     ::ndk::ScopedAStatus setUserDataEnabled(int32_t serial, bool enabled) override;
     ::ndk::ScopedAStatus setUserDataRoamingEnabled(int32_t serial, bool enabled) override;
-    ::ndk::ScopedAStatus notifyImsDataNetwork(int32_t serial,
-                                              const ar::data::ImsDataNetworkInfo& info) override;
+    ::ndk::ScopedAStatus notifyImsDataNetwork(int32_t serial, ar::AccessNetwork accessNetwork,
+                                             ar::data::DataNetworkState dataNetworkState,
+                                             ar::data::TransportType transportType,
+                                             int32_t modemId) override;
 
   private:
     std::shared_ptr<ShimContext> mCtx;

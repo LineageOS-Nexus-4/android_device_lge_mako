@@ -41,8 +41,13 @@ BOARD_KERNEL_CMDLINE := androidboot.hardware=mako audit=0
 # Real 100MB metadata partition (p26); system resized to 2 GiB
 BOARD_USES_METADATA_PARTITION := true
 BOARD_MKBOOTIMG_ARGS := --ramdisk_offset 0x01600000
+# mako: the 3.4 kernel is built standalone (arm-eabi-4.8, out-of-tree) and
+# dropped into prebuilt/zImage; lineage kernel.mk installs it verbatim
+# (TARGET_FORCE_PREBUILT_KERNEL skips the in-tree build).
 TARGET_KERNEL_SOURCE := kernel/lge/mako
 TARGET_KERNEL_CONFIG := lineageos_mako_defconfig
+TARGET_PREBUILT_KERNEL := device/lge/mako/prebuilt/zImage
+TARGET_FORCE_PREBUILT_KERNEL := true
 
 # Platform
 TARGET_NO_BOOTLOADER := true
@@ -69,6 +74,12 @@ VENDOR_SECURITY_PATCH := 2015-09-08
 
 # QCOM hardware
 BOARD_USES_QCOM_HARDWARE := true
+# mako: legacy msm8960 display HAL (Android.mk) exposes display_intf_headers;
+# SurfaceFlinger resolves its qtidisplay headers from there.
+QCOM_DISPLAY_SOONG_NAMESPACE := hardware/qcom/display/msm8960
+PRODUCT_SOONG_NAMESPACES += hardware/qcom/display/msm8960
+# mako: expose the legacy wlan defaults (libwifi-hal-qcom) to frameworks/opt/net/wifi
+PRODUCT_SOONG_NAMESPACES += hardware/qcom/wlan
 
 # Audio
 AUDIO_FEATURE_ENABLED_FLUENCE := true
@@ -89,6 +100,14 @@ TARGET_DISABLE_WCNSS_CONFIG_COPY := true
 
 # Wi-Fi
 BOARD_HAS_QCOM_WLAN := true
+# mako bring-up: the AIDL ISupplicant is hosted by wpa_supplicant_mainline in
+# the com.android.wifi APEX; install the unified supplicant init rc so the
+# service starts at boot.
+WIFI_HIDL_UNIFIED_SUPPLICANT_SERVICE_RC_ENTRY := true
+# mako: use the legacy hardware/qcom/wlan tree (validated since AOSP 17);
+# skips the CAF wlan namespaces in qcom-caf/common/BoardConfigQcom.mk and
+# registers our display namespace override below.
+TARGET_USES_LEGACY_WLAN := true
 BOARD_WLAN_DEVICE := qcwcn
 WPA_SUPPLICANT_VERSION := VER_0_8_X
 BOARD_WPA_SUPPLICANT_DRIVER := NL80211
@@ -143,6 +162,11 @@ include device/qcom/sepolicy-legacy/sepolicy.mk
 BOARD_VENDOR_SEPOLICY_DIRS += $(DEVICE_PATH)/sepolicy/vendor
 PRODUCT_PRIVATE_SEPOLICY_DIRS += $(DEVICE_PATH)/sepolicy/private
 
+# mako: the 23.2 Lineage qcom overlay (device/lineage/sepolicy/qcom) references
+# types/attributes (vendor_hal_soter*, vendor_fm_app, ...) that ship with the
+# stock generic qcom sepolicy; expose its public dir so they resolve.
+SYSTEM_EXT_PUBLIC_SEPOLICY_DIRS += device/qcom/sepolicy/generic/public
+
 # Camera
 TARGET_PROCESS_SDK_VERSION_OVERRIDE := \
     /system/bin/cameraserver=22 \
@@ -153,3 +177,4 @@ TARGET_RECOVERY_FSTAB := $(DEVICE_PATH)/rootdir/etc/fstab.mako
 
 # Device manifest
 DEVICE_MANIFEST_FILE := $(DEVICE_PATH)/manifest.xml
+DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE := device/lge/mako/compatibility_matrix.device.xml

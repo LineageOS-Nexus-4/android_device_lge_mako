@@ -1,3 +1,8 @@
+# mako shipped with Android 4.2 (API 17); required so A16 treats it as a
+# pre-Q device (skips vendor property-namespace enforcement, legacy prop tool
+# behavior, and gives checkvintf the right ro.product.first_api_level).
+PRODUCT_SHIPPING_API_LEVEL := 17
+
 # Boot animation
 TARGET_SCREEN_HEIGHT := 1280
 TARGET_SCREEN_WIDTH := 768
@@ -10,7 +15,6 @@ $(call inherit-product, $(SRC_TARGET_DIR)/product/aosp_base_telephony.mk)
 
 # Inherit from the Lineage vendor
 $(call inherit-product, vendor/lineage/config/common_mini_phone.mk)
-$(call inherit-product, vendor/lineage/build/target/product/product_launched_with_j_mr1.mk)
 
 # Inherit from hardware-specific part of the product configuration
 $(call inherit-product, device/lge/mako/device.mk)
@@ -26,8 +30,7 @@ PRODUCT_BRAND := google
 PRODUCT_MODEL := Nexus 4
 PRODUCT_MANUFACTURER := LGE
 
-PRODUCT_BUILD_PROP_OVERRIDES += \
-    PRODUCT_NAME=occam \
-    PRIVATE_BUILD_DESC="occam-user 5.1.1 LMY48T 2237560 release-keys"
-
+# mako: gen_build_prop.py validates PRODUCT_BUILD_PROP_OVERRIDES keys
+# against product_config.json; PRODUCT_NAME/PRIVATE_BUILD_DESC are not
+# valid there and fail the build. BUILD_FINGERPRINT alone is fine.
 BUILD_FINGERPRINT := google/occam/mako:5.1.1/LMY48T/2237560:user/release-keys

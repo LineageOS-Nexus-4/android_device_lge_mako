@@ -32,13 +32,6 @@ MAKO_DEVICE_PATH := $(LOCAL_PATH)
 include $(call first-makefiles-under,$(LOCAL_PATH))
 
 # -------------------------------------------------------------------
-# Prebuilt kernel: the Linux 3.4 mako kernel is built standalone with
-# arm-eabi-4.8 (see kernel/lge/mako) and installed here as a prebuilt.
-# -------------------------------------------------------------------
-$(PRODUCT_OUT)/kernel: $(MAKO_DEVICE_PATH)/prebuilt/zImage
-	cp -f $< $@
-
-# -------------------------------------------------------------------
 # mako has no vendor partition: vendor lives in /system/vendor.
 # Provide a /vendor symlink in the ramdisk so that init and its
 # imports (/vendor/etc/init/hw/init.mako.rc) resolve correctly.

@@ -55,7 +55,6 @@ class CameraDeviceShim : public BnCameraDevice {
         const StreamConfiguration& streams, bool* _aidl_return) override;
     ndk::ScopedAStatus getSessionCharacteristics(
         const StreamConfiguration& sessionConfig, CameraMetadata* _aidl_return) override;
-    ndk::ScopedAStatus warmUp() override;
 
   private:
     friend class CameraDeviceSessionShim;

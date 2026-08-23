@@ -9,6 +9,7 @@
 #include <hidl/HidlSupport.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -35,7 +36,11 @@ namespace {
 
 struct RadioDeathRecipient : public hidl_death_recipient {
     void serviceDied(uint64_t, const wp<::android::hidl::base::V1_0::IBase>&) override {
-        LOG(FATAL) << "HIDL IRadio (rild) died; exiting so init can restart the shim";
+        // rild was restarted (boot-time UIM warm-up or watchdog); exit cleanly
+        // so init respawns the shim and re-binds to the new IRadio without a
+        // tombstone.
+        LOG(WARNING) << "HIDL IRadio (rild) died; exiting so init can restart the shim";
+        exit(0);
     }
 };
 
@@ -76,11 +81,16 @@ static void main() {
 
     auto ctx = std::make_shared<ShimContext>();
 
-    // Bind to the HIDL V1.1 IRadio registered in-process by rild.
-    const auto radio = R11::IRadio::getService("slot1");
-    if (radio == nullptr) {
-        LOG(FATAL) << "V1.1 IRadio/slot1 not present; is rild running?";
-        return;
+    // Bind to the HIDL V1.1 IRadio registered in-process by rild. rild is
+    // gated on vendor.radio.modem_ready, and a deterministic restart a few
+    // seconds later (SIM warm-up) leaves a window with no IRadio; keep
+    // retrying instead of crashing so init doesn't respawn us in a loop.
+    sp<R11::IRadio> radio = nullptr;
+    while (radio == nullptr) {
+        radio = R11::IRadio::getService("slot1");
+        if (radio == nullptr) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
     }
     LOG(INFO) << "Bound to V1.1 IRadio/slot1";
     ctx->radio = radio;

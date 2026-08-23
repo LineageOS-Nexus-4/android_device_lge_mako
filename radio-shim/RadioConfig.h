@@ -28,7 +28,6 @@ class RadioConfig : public ar::config::BnRadioConfig {
     ::ndk::ScopedAStatus getSimTypeInfo(int32_t serial) override;
     ::ndk::ScopedAStatus setSimType(int32_t serial,
                                     const std::vector<ar::config::SimType>& simTypes) override;
-    ::ndk::ScopedAStatus rebootModem(int32_t serial) override;
 
   private:
     std::shared_ptr<ShimContext> mCtx;

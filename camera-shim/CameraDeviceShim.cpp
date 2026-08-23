@@ -500,8 +500,4 @@ ndk::ScopedAStatus CameraDeviceShim::getSessionCharacteristics(
     return getCameraCharacteristics(_aidl_return);
 }
 
-ndk::ScopedAStatus CameraDeviceShim::warmUp() {
-    return ndk::ScopedAStatus::ok();
-}
-
 }  // namespace aidl::android::hardware::camera::provider::shim

@@ -8,7 +8,7 @@ package {
 cc_binary {
     name: "android.hardware.radio-service.mako-shim",
     relative_install_path: "hw",
-    init_rc: ["mako-shim.rc"],
+    init_rc: ["mako-shim.rc", "rild-mako.rc"],
     vintf_fragments: ["mako-shim.xml"],
     vendor: true,
     cflags: [
