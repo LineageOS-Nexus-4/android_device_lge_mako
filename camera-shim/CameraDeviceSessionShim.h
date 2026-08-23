@@ -11,6 +11,7 @@
 #include <hardware/gralloc.h>
 #include <ui/GraphicBufferMapper.h>
 
+#include <chrono>
 #include <atomic>
 #include <condition_variable>
 #include <deque>
@@ -48,6 +49,7 @@ struct ShimPreviewWindow {
     int format = 0x11;
     int count = 0;
     int allocateBuffers();
+    static std::atomic<std::chrono::steady_clock::time_point> sLastSessionClose;
 };
 
 class CameraDeviceSessionShim : public BnCameraDeviceSession {
@@ -214,6 +216,7 @@ class CameraDeviceSessionShim : public BnCameraDeviceSession {
     // stalled consumer cannot block the result delivery (see flush()).
     std::atomic<int64_t> mFlushAbortTime{0};
     const gralloc_module_t* mGralloc = nullptr;
+    static std::atomic<std::chrono::steady_clock::time_point> sLastSessionClose;
 };
 
 }  // namespace aidl::android::hardware::camera::provider::shim

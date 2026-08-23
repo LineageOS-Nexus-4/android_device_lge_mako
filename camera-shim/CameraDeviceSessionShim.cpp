@@ -296,6 +296,45 @@ static void nv21ToRgba(const uint8_t* src, uint8_t* dst, int srcW, int srcH,
     }
 }
 
+// nv21ToRgba variant where the destination has a row stride (in pixels)
+// larger than its logical width: each converted logical row is written to the
+// FRONT of its stride row, preserving the gralloc layout.
+static void nv21ToRgbaStride(const uint8_t* src, uint8_t* dst, int srcW, int srcH,
+                             int dstW, int dstH, int dstStridePx) {
+    if (srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0 || dstStridePx < dstW) {
+        return;
+    }
+    int cx0, cy0, cw, ch;
+    cropWindow(srcW, srcH, dstW, dstH, &cx0, &cy0, &cw, &ch);
+    const uint8_t* yPlane = src;
+    const uint8_t* vuPlane = src + static_cast<size_t>(srcW) * srcH;
+    for (int y = 0; y < dstH; y++) {
+        int sy = cy0 + (y * ch) / dstH;
+        if (sy >= srcH) sy = srcH - 1;
+        const uint8_t* yRow = yPlane + static_cast<size_t>(sy) * srcW;
+        const uint8_t* vuRow = vuPlane + static_cast<size_t>(sy / 2) * srcW;
+        uint8_t* dstRow = dst + static_cast<size_t>(y) * dstStridePx * 4;
+        for (int x = 0; x < dstW; x++) {
+            int sx = cx0 + (x * cw) / dstW;
+            if (sx >= srcW) sx = srcW - 1;
+            int yy = yRow[sx];
+            int v = vuRow[sx & ~1];
+            int u = vuRow[(sx & ~1) + 1];
+            int c = yy - 16;
+            int d = u - 128;
+            int e = v - 128;
+            int r = (298 * c + 409 * e + 128) >> 8;
+            int g = (298 * c - 100 * d - 208 * e + 128) >> 8;
+            int b = (298 * c + 516 * d + 128) >> 8;
+            uint8_t* q = dstRow + static_cast<size_t>(x) * 4;
+            q[0] = (r < 0) ? 0 : ((r > 255) ? 255 : static_cast<uint8_t>(r));
+            q[1] = (g < 0) ? 0 : ((g > 255) ? 255 : static_cast<uint8_t>(g));
+            q[2] = (b < 0) ? 0 : ((b > 255) ? 255 : static_cast<uint8_t>(b));
+            q[3] = 0xff;
+        }
+    }
+}
+
 // Center-crop a packed NV21 frame to the destination aspect and scale it to
 // packed NV12 (Y plane then interleaved UV, U first) — the color format the
 // msm8960 OMX video encoder consumes from gralloc encoder buffers.
@@ -338,6 +377,9 @@ static void nv21ToNv12(const uint8_t* src, uint8_t* dst, int srcW, int srcH,
 }
 
 }  // namespace
+std::atomic<std::chrono::steady_clock::time_point>
+        CameraDeviceSessionShim::sLastSessionClose{std::chrono::steady_clock::time_point{}};
+
 
 // --- Dummy preview window ---------------------------------------------------
 
@@ -581,6 +623,7 @@ ndk::ScopedAStatus CameraDeviceSessionShim::close() {
             mPendingJpeg.clear();
             mPendingExtra.clear();
         }
+        sLastSessionClose.store(std::chrono::steady_clock::now());
         dev = mDevice;
         previewRunning = mPreviewRunning;
         mDevice = nullptr;
@@ -593,8 +636,15 @@ ndk::ScopedAStatus CameraDeviceSessionShim::close() {
     if (dev != nullptr) {
         if (previewRunning) {
             dev->ops->stop_preview(dev);
+            // mako bring-up: give the legacy VFE/camif pipeline time to drain
+            // after stop_preview.  Tearing the device down (or re-opening the
+            // other camera) while VFE is still streaming leaves dirty state
+            // that faults the IOMMU on the next stream config -> kernel
+            // watchdog reboot.
+            usleep(300 * 1000);
         }
         dev->ops->release(dev);
+        usleep(150 * 1000);
         dev->common.close(&dev->common);
     }
     if (previewMem != nullptr) {
@@ -1328,29 +1378,47 @@ bool CameraDeviceSessionShim::fillOutputBuffer(int64_t bufferId, int32_t streamI
                 srcH = wh->data[wh->numFds + 10];
             }
         }
+        // Logical size comes from the STREAM configuration (what the app asked
+        // for, e.g. 480x800).  The gralloc handle ints at [numFds+9]/[+10] are
+        // the ALLOCATED width (stride) and height -- for IMPLEMENTATION_DEFINED
+        // buffers the stride is aligned up (480 -> 640), and using them as the
+        // logical width both distorts the image and overruns row pitch.
         int dstW = mPreviewWidth;
         int dstH = mPreviewHeight;
+        int dstStridePx = 0;
         if (nh->numInts >= 11) {
-            dstW = nh->data[nh->numFds + 9];
-            dstH = nh->data[nh->numFds + 10];
+            int hw = nh->data[nh->numFds + 9];
+            int hh = nh->data[nh->numFds + 10];
+            if (hh == dstH && hw >= dstW) dstStridePx = hw;   // stride, keep logical w
+            else if (hw > 0 && hh > 0) { dstW = hw; dstH = hh; }  // legacy layout: real dims
         }
-        ALOGI("shim: convert %dx%d -> %dx%d", srcW, srcH, dstW, dstH);
-        nv21ToRgba(static_cast<const uint8_t*>(data), static_cast<uint8_t*>(vaddr),
-                   srcW, srcH, dstW, dstH);
+        ALOGI("shim: convert %dx%d -> %dx%d (stride=%d)", srcW, srcH, dstW, dstH,
+              dstStridePx ? dstStridePx : dstW);
+        if (dstStridePx > 0) {
+            // Row pitch is dstStridePx*4 bytes: convert row-by-row into the
+            // front of each stride row.
+            nv21ToRgbaStride(static_cast<const uint8_t*>(data),
+                             static_cast<uint8_t*>(vaddr), srcW, srcH,
+                             dstW, dstH, dstStridePx);
+        } else {
+            nv21ToRgba(static_cast<const uint8_t*>(data), static_cast<uint8_t*>(vaddr),
+                       srcW, srcH, dstW, dstH);
+        }
     } else if (streamId == mJpegStreamId) {
         memcpy(vaddr, data, size);
         // Append the camera3 JPEG blob footer at the end of the buffer so the
         // app's ImageReader can read the JPEG size (AIDL CameraBlob format:
         // {jpeg_blob_id = 0x00FF, jpeg_size}).
-        if (nh->numInts >= 10) {
-            uint32_t blobWidth = static_cast<uint32_t>(nh->data[nh->numFds + 9]);
-            if (blobWidth >= 8) {
-                uint8_t* footer = static_cast<uint8_t*>(vaddr) + blobWidth - 8;
-                uint32_t id = 0x00FF;  // CAMERA3_JPEG_BLOB_ID (AIDL CameraBlobId::JPEG)
-                uint32_t jsz = static_cast<uint32_t>(size);
-                memcpy(footer, &id, 4);
-                memcpy(footer + 4, &jsz, 4);
-            }
+        // The JPEG blob footer lives in the LAST 8 bytes of the buffer
+        // (camera3 semantics).  Anchor it to the mapped buffer size -- the
+        // gralloc handle ints are stride/geometry fields, not the blob
+        // capacity, and using them wrote the footer to a garbage offset.
+        if (bufSize >= 8) {
+            uint8_t* footer = static_cast<uint8_t*>(vaddr) + bufSize - 8;
+            uint32_t id = 0x00FF;  // CAMERA3_JPEG_BLOB_ID (AIDL CameraBlobId::JPEG)
+            uint32_t jsz = static_cast<uint32_t>(size);
+            memcpy(footer, &id, 4);
+            memcpy(footer + 4, &jsz, 4);
         }
     } else {
         // Extra stream (or unknown): convert from the last preview frame.
@@ -1982,3 +2050,4 @@ ndk::ScopedAStatus CameraDeviceSessionShim::repeatingRequestEnd(
 }
 
 }  // namespace aidl::android::hardware::camera::provider::shim
+

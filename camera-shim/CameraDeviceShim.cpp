@@ -149,10 +149,14 @@ camera_metadata_t* CameraDeviceShim::buildStaticCharacteristicsLocked() {
     addByte(m, ANDROID_SENSOR_INFO_LENS_SHADING_APPLIED, &shadingApplied, 1);
 
     // Scaler: stream configurations for preview + picture sizes.
+    // mako bring-up: the legacy HAL delivers preview through fixed 640x480
+    // window buffers; every advertised size is CPU-converted per frame in this
+    // process.  Sizes larger than 640x480 require upscaling (~2 Mpx/frame at
+    // 1080p) which starves the request pipeline (black preview, watchdog
+    // storms, recordings never start).  Advertise only downscale-or-crop sizes.
     const int32_t previewSizes[][2] = {
-            {1920, 1080}, {1280, 720}, {768, 1280}, {720, 1280}, {480, 854},
-            {480, 800},  {480, 720},  {480, 640},  {400, 720},  {384, 640},
-            {360, 640},  {320, 480},  {288, 480},  {240, 400},  {240, 320},
+            {640, 480},  {480, 640},  {384, 640},  {360, 640},  {352, 288},
+            {320, 480},  {288, 480},  {240, 400},  {240, 320},  {176, 288},
             {192, 320},  {144, 176},  {128, 160},
     };
     const int32_t pictureSizes[][2] = {
