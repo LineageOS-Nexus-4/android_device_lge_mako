@@ -202,6 +202,7 @@ class CameraDeviceSessionShim : public BnCameraDeviceSession {
     // lm3559 spotlight sysfs directly around take_picture instead of using
     // the HAL's flash-mode=on (which takes a fragile preview-restart path).
     std::atomic<bool> mFlashRequested{false};
+    bool mFlashFirstShot = true;
     // Generation counter bumped on configureStreams; a detached post-shot
     // stop_preview must not tear down a session that was already closed
     // and reopened.

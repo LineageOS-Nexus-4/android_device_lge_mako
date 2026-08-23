@@ -826,7 +826,12 @@ ndk::ScopedAStatus CameraDeviceSessionShim::configureStreams(
         }
         _aidl_return->push_back(hal);
     }
-    mConfigured = true;
+        mConfigured = true;
+        // Fresh session: clear any stale flash request from a previous
+        // (possibly aborted) capture and make sure the LED is off.
+        mFlashRequested.store(false);
+        ::android::base::WriteStringToFile(
+                "0", "/sys/class/leds/spotlight/brightness");
     return ndk::ScopedAStatus::ok();
 }
 
@@ -1102,12 +1107,18 @@ void CameraDeviceSessionShim::processRequest(std::unique_lock<std::mutex>& lock,
                     // spotlight sysfs directly and let the AE re-settle with
                     // the LED on (see take_picture below).
                     mFlashRequested.store(true);
+                    mFlashFirstShot = true;
+                    mFlashFirstShot = true;
                     flashMode = "off";
                     break;
                 case ANDROID_FLASH_MODE_TORCH:
                     flashMode = "torch";
                     break;
                 default:
+                    // Explicit OFF must also clear a stale flash request from
+                    // an aborted earlier capture -- otherwise the LED keeps
+                    // firing on every subsequent shot (user-visible bug).
+                    mFlashRequested.store(false);
                     flashMode = "off";
                     break;
             }
@@ -1287,7 +1298,15 @@ void CameraDeviceSessionShim::processRequest(std::unique_lock<std::mutex>& lock,
                         "255", "/sys/class/leds/spotlight/brightness");
                 // Let the preview AE loop re-settle with the LED on, so the
                 // snapshot exposure is metered for the flash-lit scene.
-                usleep(500000);
+                // First flash shot after open needs longer: the AE starts
+                // from the dark-scene exposure and must fully converge.
+                // NOTE: the LM3559 strobe driver auto-times-out torch mode
+                // (~0.5-1 s).  A long settle makes the LED die before the
+                // capture while AE has already converged to it -> DARK
+                // photos.  Keep the settle SHORT so the LED is still lit at
+                // take_picture; slight under-exposure on the very first shot
+                // is preferable to a dead strobe.
+                usleep(350000);
             }
             if (mDevice->ops->take_picture != nullptr) {
                 mDevice->ops->take_picture(mDevice);
