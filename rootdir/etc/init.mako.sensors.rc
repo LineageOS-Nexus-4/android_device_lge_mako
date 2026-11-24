@@ -1,0 +1,4 @@
+# Start the Qualcomm daemon after init.mako.rc creates its data directory.
+# The binderized Sensors HAL starts later in class hal and connects to it.
+on post-fs-data
+    start sensors

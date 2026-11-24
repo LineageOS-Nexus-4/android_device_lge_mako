@@ -1,0 +1,6 @@
+<resources>
+    <!-- mako uses the Wi-Fi APEX supplicant. -->
+    <bool name="config_wifiMainlineSupplicantEnabled">true</bool>
+    <!-- Prima supports scheduled scans for reconnecting with the screen off. -->
+    <bool name="config_wifi_background_scan_support">true</bool>
+</resources>

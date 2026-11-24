@@ -48,7 +48,7 @@ typedef struct _ArgEl {
 
 typedef ArgEl InArg;
 
-#define DEFAULT_BDADDR_PROP "persist.service.bdroid.bdaddr"
+#define DEFAULT_BDADDR_PROP "vendor.bluetooth.bdaddr"
 
 typedef struct _OutArg {
     ArgEl dest;
@@ -203,8 +203,10 @@ int writeBDAddr(OutArg outArg, LoadedBDAddr *loadedBDAddr)
             && loadedBDAddr->nDataType == ARG_TYPE_DATA_ASCII
             && strlen(loadedBDAddr->data.sz)==(BD_ADDR_STR_LEN-1)) {
        printf("%s",loadedBDAddr->data.sz);
-       if (property_set(DEFAULT_BDADDR_PROP, loadedBDAddr->data.sz) < 0)
+       if (property_set(DEFAULT_BDADDR_PROP, loadedBDAddr->data.sz) < 0) {
            ALOGE("Failed to set address in prop %s", DEFAULT_BDADDR_PROP);
+           return FAIL;
+       }
     } else {
        ALOGE("Invalid Data is loaded : %s", loadedBDAddr->data.sz);
        return FAIL;
@@ -280,5 +282,5 @@ int main(int argc, char *argv[])
         return FAIL;
     }
 
-    return 1;
+    return SUCCESS;
 }

@@ -1,0 +1,9 @@
+# The root cpuset is created during init, before SystemUI starts.
+on early-boot
+    start vendor.mako-cpuset
+
+service vendor.mako-cpuset /vendor/bin/mako-cpuset
+    class late_start
+    user root
+    group root
+    disabled

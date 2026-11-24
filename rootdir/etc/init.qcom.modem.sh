@@ -22,7 +22,7 @@
 
 # Wait for the modem to enumerate on HSIC USB (rmnet_usb data probe).
 i=0
-while [ ! -e /sys/class/net/rmnet_usb0 ]; do
+while [ ! -L /sys/class/net/rmnet_usb0 ]; do
     i=$((i+1))
     [ "$i" -ge 300 ] && exit 1
     sleep 0.1
@@ -38,7 +38,7 @@ setprop vendor.radio.modem_ready 1
 # to ~53s to complete), declaring RADIO_UNAVAILABLE. Bounce rild once after
 # that window so the second start finds a warm UIM session.
 sleep 55
-setprop ctl.restart vendor.ril-daemon
+setprop vendor.radio.modem_restart 1
 
 # Safety net: if the SIM never reports LOADED, restart rild again, up to
 # three attempts.
@@ -46,12 +46,11 @@ tries=0
 while [ "$tries" -lt 3 ]; do
     j=0
     while [ "$j" -lt 40 ]; do
-        [ "$(getprop gsm.sim.state)" = "LOADED" ] && exit 0
+        [ "$(getprop vendor.radio.mako.sim_state)" = "LOADED" ] && exit 0
         sleep 1
         j=$((j+1))
     done
-    logcat -d -b radio > /data/local/tmp/radio_before_restart.log 2>/dev/null
-    setprop ctl.restart vendor.ril-daemon
     tries=$((tries+1))
+    setprop vendor.radio.modem_restart "$((tries+1))"
 done
 exit 0

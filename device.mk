@@ -25,6 +25,14 @@ PRODUCT_SOONG_NAMESPACES += $(LOCAL_PATH)
 PRODUCT_SOONG_NAMESPACES += hardware/qcom/wlan/legacy
 PRODUCT_ENABLE_UFFD_GC := false  # kernel 3.4 lacks userfaultfd
 
+# Recovery uses the kernel's real v1 cpuacct process-membership hierarchy.
+$(call soong_config_set,mako,recovery_cgroup_version,1)
+$(call soong_config_set,mako,cgroup_version,1)
+
+# Decompressed CAPEX lives on /data and requires modern dm-verity options
+# absent from this kernel. Keep preinstalled APEX on the readonly partition.
+PRODUCT_COMPRESSED_APEX := false
+
 # Overlays
 DEVICE_PACKAGE_OVERLAYS += \
     $(LOCAL_PATH)/overlay
@@ -39,12 +47,14 @@ PRODUCT_AAPT_PREF_CONFIG := xhdpi
 PRODUCT_AAPT_PREBUILT_DPI := hdpi
 
 # Audio
+# The stock C HAL API is 2.0. The platform HIDL wrapper exposes 7.0 to the
+# Android 16 client and checks the C device version before newer operations.
 PRODUCT_PACKAGES += \
-    android.hardware.audio@2.0-impl \
-    android.hardware.audio@7.1-impl \
-    android.hardware.audio@2.0-service \
-    android.hardware.audio.effect@2.0-impl \
+    android.hardware.audio@7.0-impl \
+    android.hardware.audio.service \
     android.hardware.audio.effect@7.0-impl \
+    android.hardware.bluetooth.audio@2.1-impl \
+    audio.bluetooth.default \
     audio.primary.msm8960 \
     audio.usb.default \
     audio.r_submix.default \
@@ -52,7 +62,7 @@ PRODUCT_PACKAGES += \
     libqcomvoiceprocessing
 
 PRODUCT_COPY_FILES += \
-    frameworks/av/services/audiopolicy/config/a2dp_audio_policy_configuration.xml:$(TARGET_COPY_OUT_VENDOR)/etc/a2dp_audio_policy_configuration.xml \
+    frameworks/av/services/audiopolicy/config/bluetooth_audio_policy_configuration.xml:$(TARGET_COPY_OUT_VENDOR)/etc/bluetooth_audio_policy_configuration.xml \
     frameworks/av/services/audiopolicy/config/audio_policy_volumes.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio_policy_volumes.xml \
     frameworks/av/services/audiopolicy/config/default_volume_tables.xml:$(TARGET_COPY_OUT_VENDOR)/etc/default_volume_tables.xml \
     frameworks/av/services/audiopolicy/config/r_submix_audio_policy_configuration.xml:$(TARGET_COPY_OUT_VENDOR)/etc/r_submix_audio_policy_configuration.xml \
@@ -117,17 +127,19 @@ PRODUCT_COPY_FILES += \
     vendor/lge/mako/proprietary/lib/libimage-jpeg-dec-omx-comp.so:system/lib/libimage-jpeg-dec-omx-comp.so \
     vendor/lge/mako/proprietary/lib/libimage-jpeg-enc-omx-comp.so:system/lib/libimage-jpeg-enc-omx-comp.so \
     vendor/lge/mako/proprietary/lib/libimage-omx-common.so:system/lib/libimage-omx-common.so \
-    vendor/lge/mako/proprietary/bin/mm-qcamera-daemon:system/bin/mm-qcamera-daemon \
-    vendor/lge/mako/proprietary/bin/v4l2-qcamera-app:system/bin/v4l2-qcamera-app
+    vendor/lge/mako/proprietary/bin/mm-qcamera-daemon:system/bin/mm-qcamera-daemon
 
 # Charger
 PRODUCT_PACKAGES += \
     charger_res_images
 
 # DRM
+# Use the device's Protobuf v29 blob for the legacy DRM HAL.
+$(call soong_config_set_bool,mako,use_device_protobuf_v29,true)
 PRODUCT_PACKAGES += \
     android.hardware.drm@1.0-impl \
-    android.hardware.drm@1.0-service
+    android.hardware.drm@1.0-service \
+    libprotobuf-cpp-lite-v29
 
 # Gatekeeper
 PRODUCT_PACKAGES += \
@@ -198,20 +210,12 @@ PRODUCT_COPY_FILES += \
 # Misc
 PRODUCT_CHARACTERISTICS := nosdcard
 
-# NFC (deferred: requires LineageOS packages/apps/Nfc fork for bcm2079x)
-# PRODUCT_PACKAGES += \
-#     android.hardware.nfc@1.0-impl-bcm \
-#     android.hardware.nfc@1.0-service \
-#     nfc_nci.default \
-#     NfcNci \
-#     Tag
-#
-# PRODUCT_COPY_FILES += \
-#     $(LOCAL_PATH)/nfc/libnfc-nci.conf:$(TARGET_COPY_OUT_VENDOR)/etc/libnfc-nci.conf
-
-# OMX
-PRODUCT_PACKAGES += \
-
+# MSM8960 non-secure H.264 decoder, built by media/rebuild-msm8960-avc.sh.
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/media/prebuilt/libOmxCore.so:$(TARGET_COPY_OUT_VENDOR)/lib/libOmxCore.so \
+    $(LOCAL_PATH)/media/prebuilt/libOmxVdec.so:$(TARGET_COPY_OUT_VENDOR)/lib/libOmxVdec.so \
+    $(LOCAL_PATH)/media/prebuilt/libqdMetaData.so:$(TARGET_COPY_OUT_VENDOR)/lib/libqdMetaData.so \
+    $(LOCAL_PATH)/media/prebuilt/libstagefrighthw.so:$(TARGET_COPY_OUT_VENDOR)/lib/libstagefrighthw.so
 
 # Permissions
 PRODUCT_COPY_FILES += \
@@ -231,9 +235,7 @@ PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/android.hardware.telephony.gsm.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.telephony.gsm.xml \
     frameworks/native/data/etc/android.hardware.audio.low_latency.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.audio.low_latency.xml \
     frameworks/native/data/etc/android.hardware.bluetooth_le.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.bluetooth_le.xml \
-    frameworks/native/data/etc/android.hardware.ethernet.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.ethernet.xml \
-    frameworks/native/data/etc/android.hardware.nfc.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.nfc.xml \
-    frameworks/native/data/etc/android.hardware.nfc.hce.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.nfc.hce.xml
+    frameworks/native/data/etc/android.hardware.ethernet.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.ethernet.xml
 
 PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/aosp_excluded_hardware.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/aosp_excluded_hardware.xml
@@ -242,10 +244,6 @@ PRODUCT_COPY_FILES += \
 PRODUCT_PACKAGES += \
     android.hardware.power@1.0-impl \
     android.hardware.power@1.0-service.mako
-
-# Power Stats
-PRODUCT_PACKAGES += \
-    android.hardware.power.stats@1.0-service.mock
 
 # Properties
 include $(LOCAL_PATH)/system_prop.mk
@@ -263,12 +261,11 @@ PRODUCT_PACKAGES += \
     init.mako.power.rc \
     init.mako.usb.rc \
     init.qcom.devstart.sh \
-    init.qcom.devwait.sh \
     init.qcom.modem.sh \
     ueventd.mako.rc
 
 PRODUCT_COPY_FILES += \
-    $(LOCAL_PATH)/fstab.mako:$(TARGET_COPY_OUT_RAMDISK)/fstab.mako
+    $(LOCAL_PATH)/fstab.mako$(if $(filter true,$(TARGET_MAKO_EXPERIMENTAL_FBE)),.fbe):$(TARGET_COPY_OUT_RAMDISK)/fstab.mako
 
 # mako bring-up: legacy vendor blobs (qseecomd via libQSEEComAPI.so) declare a
 # DT_NEEDED on libstdc++.so, which AOSP 17 dropped; shim provides the unwind
@@ -284,9 +281,18 @@ PRODUCT_PACKAGES += \
 # Sensors
 PRODUCT_PACKAGES += \
     android.hardware.sensors@1.0-impl \
+    android.hardware.sensors@1.0-service \
     sensors.msm8960
 
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/rootdir/etc/init.mako.sensors.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/init.mako.sensors.rc
+
+# cpuset hotplug
+PRODUCT_PACKAGES += mako-cpuset
+
 # Thermal
+PRODUCT_PACKAGES += android.hardware.thermal-service.mako
+
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/configs/thermald-mako.conf:$(TARGET_COPY_OUT_VENDOR)/etc/thermald.conf
 
@@ -302,7 +308,7 @@ PRODUCT_PACKAGES += \
 PRODUCT_PACKAGES += \
     android.hardware.usb@1.0-service
 
-# Bluetooth: BCM/WCN3660 via SMD (ro.qualcomm.bt.hci_transport=smd,
+# Bluetooth: WCN3660 via SMD (ro.qualcomm.bt.hci_transport=smd,
 # /dev/smd3). libbt-vendor from hardware/qcom/bt (msm8960); HAL from
 # hardware/interfaces/bluetooth/1.0; bdAddrLoader from the device tree.
 PRODUCT_PACKAGES += \
@@ -320,6 +326,8 @@ PRODUCT_PACKAGES += \
 # service (android.hardware.nfc@1.0-service loads nfc_nci.default via
 # hw_get_module; NfcAdaptation falls back 1.2/1.1/1.0 -> AIDL).
 PRODUCT_COPY_FILES += \
+    frameworks/native/data/etc/android.hardware.nfc.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.nfc.xml \
+    frameworks/native/data/etc/android.hardware.nfc.hce.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.nfc.hce.xml \
     $(LOCAL_PATH)/nfc/libnfc-nci.conf:$(TARGET_COPY_OUT_VENDOR)/etc/libnfc-nci.conf
 PRODUCT_PACKAGES += \
     nfc_nci.default \
@@ -340,6 +348,7 @@ PRODUCT_PACKAGES += \
 # wpa_supplicant is not used on AOSP 17.
 PRODUCT_PACKAGES += \
     com.android.hardware.wifi \
+    MakoWifiOverlay \
     libwpa_client \
     hostapd \
     wificond \

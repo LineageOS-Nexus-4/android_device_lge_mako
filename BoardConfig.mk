@@ -36,14 +36,13 @@ TARGET_CPU_VARIANT_RUNTIME := krait
 BOARD_KERNEL_BASE := 0x80200000
 BOARD_KERNEL_IMAGE_NAME = zImage
 BOARD_KERNEL_PAGESIZE := 2048
-BOARD_KERNEL_CMDLINE := androidboot.hardware=mako audit=0
+# The 3.4 EFI parser needs gpt to try the valid secondary after a torn primary.
+BOARD_KERNEL_CMDLINE := androidboot.hardware=mako audit=1 gpt
 
 # Real 100MB metadata partition (p26); system resized to 2 GiB
 BOARD_USES_METADATA_PARTITION := true
 BOARD_MKBOOTIMG_ARGS := --ramdisk_offset 0x01600000
-# mako: the 3.4 kernel is built standalone (arm-eabi-4.8, out-of-tree) and
-# dropped into prebuilt/zImage; lineage kernel.mk installs it verbatim
-# (TARGET_FORCE_PREBUILT_KERNEL skips the in-tree build).
+# build-kernel.sh uses GCC 4.9 to build the image installed by kernel.mk.
 TARGET_KERNEL_SOURCE := kernel/lge/mako
 TARGET_KERNEL_CONFIG := lineageos_mako_defconfig
 TARGET_PREBUILT_KERNEL := device/lge/mako/prebuilt/zImage
@@ -56,15 +55,14 @@ TARGET_BOARD_PLATFORM := msm8960
 TARGET_BOOTLOADER_BOARD_NAME := mako
 TARGET_BOOTLOADER_NAME := mako
 
-# Binder API version
-TARGET_USES_64_BIT_BINDER := true
-
 # mako is an A-only device; AOSP 17 defaults AB_OTA_UPDATER to true
 AB_OTA_UPDATER := false
 # AOSP 17 OTA tooling assumes recovery-as-boot; mako uses a separate recovery
 # partition. OTA generation is enabled so a TWRP-flashable package is produced
 # (flashing goes through TWRP to bypass the bootloader fastboot size check).
 TARGET_SKIP_OTA_PACKAGE := false
+# Assert the selected disk geometry and GPT names before OTA ROM writes.
+TARGET_RELEASETOOLS_EXTENSIONS := $(DEVICE_PATH)
 # Ship a full recovery image inside /system/vendor/etc so the non-A/B OTA
 # generator (HasRecoveryPatch) finds it and the package build can complete.
 BOARD_USES_FULL_RECOVERY_IMAGE := true
@@ -74,10 +72,14 @@ VENDOR_SECURITY_PATCH := 2015-09-08
 
 # QCOM hardware
 BOARD_USES_QCOM_HARDWARE := true
+TARGET_USES_LEGACY_QCOM_HARDWARE := true
 # mako: legacy msm8960 display HAL (Android.mk) exposes display_intf_headers;
 # SurfaceFlinger resolves its qtidisplay headers from there.
+QCOM_SOONG_NAMESPACE := hardware/qcom/display/msm8960
 QCOM_DISPLAY_SOONG_NAMESPACE := hardware/qcom/display/msm8960
 PRODUCT_SOONG_NAMESPACES += hardware/qcom/display/msm8960
+# The primary audio HAL was converted to Soong and lives in its own namespace.
+PRODUCT_SOONG_NAMESPACES += hardware/qcom/audio
 # mako: expose the legacy wlan defaults (libwifi-hal-qcom) to frameworks/opt/net/wifi
 PRODUCT_SOONG_NAMESPACES += hardware/qcom/wlan
 
@@ -90,6 +92,10 @@ USE_CUSTOM_AUDIO_POLICY := 1
 # Bluetooth
 BOARD_HAVE_BLUETOOTH := true
 BOARD_HAVE_BLUETOOTH_QCOM := true
+BOARD_BLUETOOTH_QCOM_USE_VENDOR_PROPERTIES := true
+SOONG_CONFIG_NAMESPACES += legacy_bluetooth
+SOONG_CONFIG_legacy_bluetooth += vendor_address
+SOONG_CONFIG_legacy_bluetooth_vendor_address := true
 BLUETOOTH_HCI_USE_MCT := true
 BOARD_BLUETOOTH_BDROID_BUILDCFG_INCLUDE_DIR := $(DEVICE_PATH)/bluetooth
 
@@ -143,11 +149,14 @@ TARGET_USERIMAGES_USE_EXT4 := true
 BOARD_BOOTIMAGE_PARTITION_SIZE := 23068672 # 22M
 BOARD_RECOVERYIMAGE_PARTITION_SIZE := 23068672 # 22M
 BOARD_SYSTEMIMAGE_PARTITION_SIZE := 2147483648 # 2048M (2 GiB)
-BOARD_USERDATAIMAGE_PARTITION_SIZE := 6189744128 # 5.9G
+# Userdata size for the supported 16-GB partition layout.
+# The OTA must not write userdata; this value only constrains explicit images.
+BOARD_USERDATAIMAGE_PARTITION_SIZE := 13240369152
 BOARD_CACHEIMAGE_PARTITION_SIZE := 104857600 # 100M
 BOARD_CACHEIMAGE_FILE_SYSTEM_TYPE := ext4
 BOARD_FLASH_BLOCK_SIZE := 131072 # (BOARD_KERNEL_PAGESIZE * 64)
-BOARD_ROOT_EXTRA_FOLDERS := firmware persist
+# cpuacct must have its mount point before init switches to read-only system.
+BOARD_ROOT_EXTRA_FOLDERS := acct firmware metadata persist
 
 # Reduce space taken by the journal
 BOARD_SYSTEMIMAGE_JOURNAL_SIZE := 0
@@ -158,14 +167,16 @@ TARGET_NO_RPC := true
 BOARD_VENDOR_QCOM_LOC_PDK_FEATURE_SET := true
 
 # SeLinux Policy
+TARGET_QCOM_LEGACY_FACTORY_TESTS := false
+TARGET_QCOM_LEGACY_DATASERVICES := false
+TARGET_QCOM_STRICT_SEPOLICY := true
 include device/qcom/sepolicy-legacy/sepolicy.mk
 BOARD_VENDOR_SEPOLICY_DIRS += $(DEVICE_PATH)/sepolicy/vendor
 PRODUCT_PRIVATE_SEPOLICY_DIRS += $(DEVICE_PATH)/sepolicy/private
 
-# mako: the 23.2 Lineage qcom overlay (device/lineage/sepolicy/qcom) references
-# types/attributes (vendor_hal_soter*, vendor_fm_app, ...) that ship with the
-# stock generic qcom sepolicy; expose its public dir so they resolve.
-SYSTEM_EXT_PUBLIC_SEPOLICY_DIRS += device/qcom/sepolicy/generic/public
+# Export only the attribute ABI needed by the Lineage qcom overlay. The legacy
+# policy already owns the FM types; importing modern generic/public duplicates them.
+SYSTEM_EXT_PUBLIC_SEPOLICY_DIRS += $(DEVICE_PATH)/sepolicy/public
 
 # Camera
 TARGET_PROCESS_SDK_VERSION_OVERRIDE := \
@@ -173,7 +184,12 @@ TARGET_PROCESS_SDK_VERSION_OVERRIDE := \
     /system/vendor/bin/mm-qcamera-daemon=22
 
 # Recovery
+# F2FS FBE is opt-in and requires separately provisioned userdata.
+ifeq ($(TARGET_MAKO_EXPERIMENTAL_FBE),true)
+TARGET_RECOVERY_FSTAB := $(DEVICE_PATH)/rootdir/etc/fstab.mako.fbe
+else
 TARGET_RECOVERY_FSTAB := $(DEVICE_PATH)/rootdir/etc/fstab.mako
+endif
 
 # Device manifest
 DEVICE_MANIFEST_FILE := $(DEVICE_PATH)/manifest.xml

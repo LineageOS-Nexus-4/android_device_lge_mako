@@ -1,4 +1,9 @@
 on fs
+    # Recovery sets service.adb.root before sys.usb.config. Register the legacy
+    # FunctionFS function first: its ready callback requires android_dev even
+    # while the gadget is still disconnected. Otherwise early adbd panics 3.4.
+    write /sys/class/android_usb/android0/enable 0
+    write /sys/class/android_usb/android0/functions adb
     setprop sys.usb.ffs.aio_compat 1
     setprop persist.adb.nonblocking_ffs 0
     setprop ro.adb.nonblocking_ffs 0

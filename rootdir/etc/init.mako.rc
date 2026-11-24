@@ -17,6 +17,15 @@
 import init.mako.power.rc
 import init.mako.usb.rc
 
+# Unblock optional GPU tracing consumers after the BPF loader returns.
+# Program lookups fail when the kernel lacks BPF support.
+on load-bpf-programs
+    setprop bpf.progs_loaded 1
+
+# Restore the userdebug USB transport after the generic boot action.
+on boot && property:ro.debuggable=1 && property:persist.sys.usb.config=none
+    setprop sys.usb.config mtp,adb
+
 on early-init
     mount debugfs debugfs /sys/kernel/debug
     chown system system /sys/kernel/debug/kgsl/proc
@@ -47,6 +56,12 @@ on early-init
     mount cgroup none /dev/cpuset cpuset
 
 on init
+    # The v1 mount creates a root-owned hierarchy. system_server must own the
+    # directory used to create/remove application process groups; root-only
+    # controller files (including release_agent) retain their ownership.
+    chown system system /acct
+    chmod 0755 /acct
+
     # mako bring-up: use the legacy mtp,adb config (recovery-proven path);
     # the pure-adb config leaves the functionfs transport half-dead ("offline").
     setprop sys.usb.config mtp,adb
@@ -76,9 +91,6 @@ on fs
 on early-boot
     # set RLIMIT_MEMLOCK to 64MB
     setrlimit 8 67108864 67108864
-
-    # Busy loop to wait for devices booted by devstart_sh just in case device not ready
-    exec - root root system -- /vendor/bin/init.qcom.devwait.sh
 
 on boot
     # Create QMUX deamon socket area
@@ -157,8 +169,8 @@ on boot
     chown wifi wifi /sys/module/wlan/parameters/fwpath
 
 on post-fs
-    # Start devices by sysfs trigger
-    start devstart_sh
+    # Wait for the ADSP boot request before continuing to later boot actions.
+    exec_start devstart_sh
 
     # Allow writing to the kernel trace log.
     chmod 0222 /sys/kernel/debug/tracing/trace_marker
@@ -314,8 +326,6 @@ service qcamerasvr /vendor/bin/mm-qcamera-daemon
     class early_hal
     user camera
     group camera system inet input
-    # The 2012 camera blob needs text relocations, which the bionic linker
-    # unprotects for us; the daemon is required for the camera HAL.
 
 service wcnss-service /vendor/bin/wcnss_service
     class main
@@ -344,3 +354,7 @@ service devstart_sh /vendor/bin/init.qcom.devstart.sh
     group root system
     disabled
     oneshot
+
+# Framework owns gsm.sim.state. The vendor modem watchdog uses this mirror.
+on property:gsm.sim.state=*
+    setprop vendor.radio.mako.sim_state ${gsm.sim.state}

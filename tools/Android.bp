@@ -1,0 +1,11 @@
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
+cc_binary {
+    name: "mako-cpuset",
+    vendor: true,
+    srcs: ["mako_cpuset_live.c"],
+    init_rc: ["mako-cpuset.rc"],
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+}

@@ -1,0 +1,29 @@
+package {
+    default_applicable_licenses: ["mako_protobuf_v29_license"],
+}
+
+license {
+    name: "mako_protobuf_v29_license",
+    license_kinds: ["SPDX-license-identifier-BSD-3-Clause"],
+    license_text: ["NOTICE"],
+}
+
+// The legacy Widevine engine needs the Protobuf ABI from the VNDK v29
+// snapshot. Use a distinct SONAME so the current vendor runtime can coexist.
+// Source: AOSP prebuilts/vndk/v29, commit 93623f6d162e93762d0391dcb91db2036d4b6db3.
+// Input: arm/arch-arm-armv7-a-neon/shared/vndk-core/libprotobuf-cpp-lite.so.
+// Change: patchelf --set-soname libprotobuf-cpp-lite-v29.so.
+cc_prebuilt_library_shared {
+    name: "libprotobuf-cpp-lite-v29",
+    vendor: true,
+    compile_multilib: "32",
+    arch: {
+        arm: {
+            srcs: ["libprotobuf-cpp-lite-v29.so"],
+        },
+    },
+    shared_libs: ["libc++"],
+    strip: {
+        none: true,
+    },
+}

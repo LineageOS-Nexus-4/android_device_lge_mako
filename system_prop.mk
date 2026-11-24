@@ -3,6 +3,8 @@ PRODUCT_PROPERTY_OVERRIDES += \
     dalvik.vm.dex2oat-filter=speed \
     dalvik.vm.image-dex2oat-filter=speed
 
+PRODUCT_SYSTEM_PROPERTIES += ro.dalvik.vm.memfd_backport=true
+
 # Audio
 # mako bring-up: the audioserver is disabled; never wait for its binder
 # service (each call would otherwise block 5s, tripping the Watchdog).
@@ -16,6 +18,10 @@ PRODUCT_PROPERTY_OVERRIDES += \
 
 # Bluetooth
 PRODUCT_PROPERTY_OVERRIDES += \
+    bluetooth.core.le.vendor_capabilities.enabled=false \
+    bluetooth.profile.a2dp.source.enabled=true \
+    persist.bluetooth.a2dp_offload.disabled=true \
+    ro.bluetooth.a2dp_offload.supported=false \
     ro.bluetooth.hfp.ver=1.6 \
     ro.qualcomm.bt.hci_transport=smd
 
