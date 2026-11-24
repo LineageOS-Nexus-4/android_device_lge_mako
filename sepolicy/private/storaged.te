@@ -1,0 +1,2 @@
+# Read the controller revision and I/O counters from the internal eMMC.
+allow storaged mako_sysfs_emmc_stats:file r_file_perms;

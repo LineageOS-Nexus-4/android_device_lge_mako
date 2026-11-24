@@ -7,7 +7,4 @@ allow hal_audio_default qmuxd_socket:sock_file { create setattr link unlink };
 allow hal_audio_default self:socket create_socket_perms;
 allowxperm hal_audio_default self:socket ioctl msm_sock_ipc_ioctls;
 
-allow hal_audio_default audio_data_file:dir w_dir_perms;
-allow hal_audio_default audio_data_file:file create_file_perms;
-
-allow hal_audio_default hal_power_hwservice:hwservice_manager find;
+hal_client_domain(hal_audio_default, hal_power)

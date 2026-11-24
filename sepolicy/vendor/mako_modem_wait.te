@@ -1,0 +1,16 @@
+type mako_modem_wait, domain;
+type mako_modem_wait_exec, exec_type, file_type, vendor_file_type;
+init_daemon_domain(mako_modem_wait)
+
+vendor_internal_prop(vendor_mako_modem_prop)
+allow mako_modem_wait shell_exec:file rx_file_perms;
+allow mako_modem_wait toolbox_exec:file rx_file_perms;
+allow mako_modem_wait sysfs_net:dir search;
+allow mako_modem_wait sysfs:lnk_file getattr;
+set_prop(mako_modem_wait, vendor_mako_modem_prop)
+
+# The radio daemon reads its legacy driver path from the vendor build properties.
+typeattribute vendor_rild_libpath_prop vendor_property_type;
+typeattribute vendor_rild_libpath_prop vendor_internal_property_type;
+set_prop(vendor_init, vendor_rild_libpath_prop)
+get_prop(rild, vendor_rild_libpath_prop)

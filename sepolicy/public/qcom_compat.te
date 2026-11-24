@@ -1,0 +1,6 @@
+# Lineage's qcom platform_app policy references these attributes even on mako,
+# which does not provide a Soter HAL. Keep the public attribute ABI without
+# importing the complete, overlapping modern Qualcomm policy.
+attribute vendor_hal_soter;
+attribute vendor_hal_soter_client;
+attribute vendor_hal_soter_server;

@@ -1,0 +1,7 @@
+type mako_cpuset, domain;
+type mako_cpuset_exec, exec_type, vendor_file_type, file_type;
+init_daemon_domain(mako_cpuset)
+
+allow mako_cpuset cgroup:dir search;
+allow mako_cpuset cgroup:file rw_file_perms;
+allow mako_cpuset self:netlink_kobject_uevent_socket create_socket_perms_no_ioctl;

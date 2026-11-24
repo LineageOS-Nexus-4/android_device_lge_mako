@@ -1,0 +1,9 @@
+type mako_sysfs_camera_flash, fs_type, sysfs_type;
+
+# init sets camera ownership on the torch nodes before the camera HAL starts.
+allow init mako_sysfs_camera_flash:file setattr;
+allow hal_camera_default mako_sysfs_camera_flash:file { getattr open read write };
+
+# The AIDL shim connects to the legacy camera daemon's per-camera socket.
+allow hal_camera_default camera_socket:dir search;
+allow hal_camera_default sysfs_leds:dir search;

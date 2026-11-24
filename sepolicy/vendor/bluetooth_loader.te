@@ -1,5 +1,5 @@
 # Run init.mako.bt.sh
-allow bluetooth_loader shell_exec:file rx_file_perms;
+allow bluetooth_loader vendor_shell_exec:file rx_file_perms;
 allow bluetooth_loader bluetooth_loader_exec:file rx_file_perms;
 
 # init.mako.bt.sh needs /system/bin/log access
@@ -13,6 +13,17 @@ allow bluetooth_loader bluetooth_loader:fd use;
 allow bluetooth_loader persist_file:dir search;
 r_dir_file(bluetooth_loader, persist_bluetooth_file)
 
-# Allow getprop/setprop for init.mako.bt.sh
-allow bluetooth_loader system_file:file execute_no_trans;
-allow bluetooth_loader toolbox_exec:file rx_file_perms;
+# The legacy firmware initializer reads ro.qualcomm.bt.hci_transport
+# to select the SMD controller rather than the UART fallback.
+get_prop(bluetooth_loader, vendor_mako_bluetooth_transport_prop)
+get_prop(hal_bluetooth_default, vendor_mako_bluetooth_transport_prop)
+
+# Exchange the factory address and controller startup state using vendor-owned
+# properties. The generic helper must not write the platform bluetooth_prop.
+set_prop(bluetooth_loader, vendor_mako_bluetooth_addr_prop)
+set_prop(bluetooth_loader, vendor_mako_bluetooth_control_prop)
+get_prop(hal_bluetooth_default, vendor_mako_bluetooth_addr_prop)
+set_prop(hal_bluetooth_default, vendor_mako_bluetooth_control_prop)
+
+# getprop, setprop, log and sleep come from the vendor toolbox and toybox.
+allow bluetooth_loader vendor_toolbox_exec:file rx_file_perms;

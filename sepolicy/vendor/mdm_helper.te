@@ -21,10 +21,8 @@ allow mdm_helper kickstart_vendor_data_file:dir rw_dir_perms;
 allow mdm_helper radio_efs_file:dir search;
 allow mdm_helper radio_efs_file:file r_file_perms;
 
-# Run dd from toolbox on firmware files
-allow mdm_helper shell_exec:file rx_file_perms;
-allow mdm_helper system_file:file execute_no_trans;
-allow mdm_helper toolbox_exec:file rx_file_perms;
+# Kickstart data is handled using the vendor command-line tools.
+allow mdm_helper { vendor_shell_exec vendor_toolbox_exec }:file rx_file_perms;
 
 # Wake lock access
 wakelock_use(mdm_helper)

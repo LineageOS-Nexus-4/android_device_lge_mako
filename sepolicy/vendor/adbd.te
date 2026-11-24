@@ -1,0 +1,2 @@
+# Linux 3.4 FunctionFS uses FIFOs to preserve short AIO reads on USB endpoints.
+allow adbd functionfs:fifo_file { getattr open read write };

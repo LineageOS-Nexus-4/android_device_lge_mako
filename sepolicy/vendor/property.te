@@ -1,1 +1,4 @@
-type ctl_rmt_prop, property_type;
+vendor_internal_prop(ctl_rmt_prop)
+vendor_internal_prop(vendor_mako_bluetooth_addr_prop)
+vendor_internal_prop(vendor_mako_bluetooth_control_prop)
+vendor_internal_prop(vendor_mako_bluetooth_transport_prop)

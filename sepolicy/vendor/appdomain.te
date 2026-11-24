@@ -1,2 +1,1 @@
-r_dir_file({ appdomain -isolated_app_all }, sysfs_batteryinfo)
 r_dir_file({ appdomain -isolated_app_all }, sysfs_thermal)

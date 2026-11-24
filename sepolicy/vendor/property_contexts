@@ -1,1 +1,9 @@
 ctl.rmt                   u:object_r:ctl_rmt_prop:s0
+vendor.bluetooth.bdaddr    u:object_r:vendor_mako_bluetooth_addr_prop:s0 exact string
+vendor.bluetooth.hciattach u:object_r:vendor_mako_bluetooth_control_prop:s0 exact bool
+vendor.bluetooth.status    u:object_r:vendor_mako_bluetooth_control_prop:s0 exact string
+# Exact match takes precedence over the legacy Qualcomm prefix rule.
+ro.qualcomm.bt.hci_transport u:object_r:vendor_mako_bluetooth_transport_prop:s0 exact enum smd uart
+vendor.radio.modem_ready    u:object_r:vendor_mako_modem_prop:s0 exact bool
+vendor.radio.modem_restart  u:object_r:vendor_mako_modem_prop:s0 exact int
+vendor.radio.mako.sim_state u:object_r:vendor_mako_modem_prop:s0 exact string
