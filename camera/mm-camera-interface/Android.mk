@@ -21,15 +21,14 @@ LOCAL_CFLAGS += -D_ANDROID_
 
 LOCAL_C_INCLUDES += \
     $(LOCAL_PATH)/.. \
-    $(LOCAL_PATH)/../inc \
-    hardware/qcom/media/mm-core/inc
+    $(LOCAL_PATH)/../inc
 
 # Kernel headers
 LOCAL_CFLAGS += -Wno-error=unused-but-set-variable -Wno-error=unused-parameter
 LOCAL_CFLAGS += -Wno-error=\#warnings
 LOCAL_C_INCLUDES += kernel/lge/mako/include
 LOCAL_HEADER_LIBRARIES := generated_kernel_headers
-LOCAL_HEADER_LIBRARIES += libmmcamera_headers
+LOCAL_HEADER_LIBRARIES += libmmcamera_headers media_plugin_headers
 
 LOCAL_CFLAGS += -Wall -Werror
 

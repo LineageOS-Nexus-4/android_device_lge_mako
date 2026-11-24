@@ -55,6 +55,9 @@ fi
 
 function blob_fixup() {
     case "${1}" in
+        lib/libmmjpeg.so|vendor/lib/libmmjpeg.so)
+            python3 "${MY_DIR}/tools/fix-mmjpeg-relro.py" "${2}" "${2}"
+            ;;
         vendor/lib/mediadrm/libwvdrmengine.so)
             "${PATCHELF}" --replace-needed libprotobuf-cpp-lite.so libprotobuf-cpp-lite-v29.so "${2}"
             ;;

@@ -102,6 +102,9 @@ camera_metadata_t* CameraDeviceShim::buildStaticCharacteristicsLocked() {
                                    mCameraId == 0 ? 2448 : 1024};
     addInt32(m, ANDROID_SENSOR_INFO_PIXEL_ARRAY_SIZE, pixelArray, 2);
     addInt32(m, ANDROID_SENSOR_INFO_ACTIVE_ARRAY_SIZE, activeArray, 4);
+    // Capture timestamps come from CLOCK_MONOTONIC, not elapsed realtime.
+    const uint8_t timestampSource = ANDROID_SENSOR_INFO_TIMESTAMP_SOURCE_UNKNOWN;
+    addByte(m, ANDROID_SENSOR_INFO_TIMESTAMP_SOURCE, &timestampSource, 1);
     const float physicalSize[] = {4.6f, 3.45f};
     addFloat(m, ANDROID_SENSOR_INFO_PHYSICAL_SIZE, physicalSize, 2);
     const uint8_t aeLockAvailable = 1;
@@ -172,7 +175,8 @@ camera_metadata_t* CameraDeviceShim::buildStaticCharacteristicsLocked() {
     const int32_t kStreamFormatJpeg = HAL_PIXEL_FORMAT_BLOB;
 
     std::vector<int32_t> streamConfigs;
-    streamConfigs.reserve(64);
+    std::vector<int64_t> minFrameDurations;
+    std::vector<int64_t> stallDurations;
     for (const auto& s : previewSizes) {
         streamConfigs.insert(streamConfigs.end(),
                              {kStreamFormatPreview, s[0], s[1],
@@ -180,47 +184,37 @@ camera_metadata_t* CameraDeviceShim::buildStaticCharacteristicsLocked() {
         streamConfigs.insert(streamConfigs.end(),
                              {kStreamFormatYuv, s[0], s[1],
                               ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT});
+        minFrameDurations.insert(minFrameDurations.end(),
+                                 {kStreamFormatPreview, s[0], s[1], 33333333LL});
+        minFrameDurations.insert(minFrameDurations.end(),
+                                 {kStreamFormatYuv, s[0], s[1], 33333333LL});
+        stallDurations.insert(stallDurations.end(), {kStreamFormatPreview, s[0], s[1], 0});
     }
     for (const auto& s : pictureSizes) {
+        // IMX119 accepts still captures up to 1280x960 through the legacy HAL.
+        if (info.facing == CAMERA_FACING_FRONT && (s[0] > 1280 || s[1] > 960)) {
+            continue;
+        }
         streamConfigs.insert(streamConfigs.end(),
                              {kStreamFormatJpeg, s[0], s[1],
                               ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT});
         streamConfigs.insert(streamConfigs.end(),
                              {kStreamFormatYuv, s[0], s[1],
                               ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT});
+        minFrameDurations.insert(minFrameDurations.end(),
+                                 {kStreamFormatJpeg, s[0], s[1], 500000000LL});
+        stallDurations.insert(stallDurations.end(), {kStreamFormatJpeg, s[0], s[1], 1000000000});
     }
     addInt32(m, ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS, streamConfigs.data(),
              streamConfigs.size());
-
-    std::vector<int64_t> minFrameDurations;
-    minFrameDurations.reserve(32);
-    for (const auto& s : previewSizes) {
-        minFrameDurations.insert(minFrameDurations.end(),
-                                 {kStreamFormatPreview, s[0], s[1], 33333333LL});
-        minFrameDurations.insert(minFrameDurations.end(),
-                                 {kStreamFormatYuv, s[0], s[1], 33333333LL});
-    }
-    for (const auto& s : pictureSizes) {
-        minFrameDurations.insert(minFrameDurations.end(),
-                                 {kStreamFormatJpeg, s[0], s[1], 500000000LL});
-    }
     addInt64(m, ANDROID_SCALER_AVAILABLE_MIN_FRAME_DURATIONS, minFrameDurations.data(),
              minFrameDurations.size());
-
-    std::vector<int64_t> stallDurations;
-    stallDurations.reserve(16);
-    for (const auto& s : previewSizes) {
-        stallDurations.insert(stallDurations.end(), {kStreamFormatPreview, s[0], s[1], 0});
-    }
-    for (const auto& s : pictureSizes) {
-        stallDurations.insert(stallDurations.end(), {kStreamFormatJpeg, s[0], s[1], 1000000000});
-    }
     addInt64(m, ANDROID_SCALER_AVAILABLE_STALL_DURATIONS, stallDurations.data(),
              stallDurations.size());
 
-    const int32_t maxDigitalZoom = 4;
-    addFloat(m, ANDROID_SCALER_AVAILABLE_MAX_DIGITAL_ZOOM,
-             reinterpret_cast<const float*>(&maxDigitalZoom), 1);
+    // The shim does not apply crop-region requests. Expose only unity zoom.
+    const float maxDigitalZoom = 1.0f;
+    addFloat(m, ANDROID_SCALER_AVAILABLE_MAX_DIGITAL_ZOOM, &maxDigitalZoom, 1);
     const int32_t cropType = ANDROID_SCALER_CROPPING_TYPE_CENTER_ONLY;
     addByte(m, ANDROID_SCALER_CROPPING_TYPE, reinterpret_cast<const uint8_t*>(&cropType), 1);
 
@@ -433,7 +427,7 @@ ndk::ScopedAStatus CameraDeviceShim::setTorchMode(bool on) {
     if (provider != nullptr) {
         using ::aidl::android::hardware::camera::common::TorchModeStatus;
         provider->notifyTorchModeChanged(
-                "device@1.0/virtual/0",
+                "device@1.0/internal/0",
                 static_cast<int32_t>(on ? TorchModeStatus::AVAILABLE_ON
                                         : TorchModeStatus::AVAILABLE_OFF));
     }

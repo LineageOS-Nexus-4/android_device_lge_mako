@@ -36,7 +36,7 @@ ndk::ScopedAStatus CameraProviderShim::getCameraIdList(
     std::vector<std::string>* _aidl_return) {
     _aidl_return->clear();
     for (int i = 0; i < kNumCameras; ++i) {
-        _aidl_return->push_back("device@1.0/virtual/" + std::to_string(i));
+        _aidl_return->push_back("device@1.0/internal/" + std::to_string(i));
     }
     return ndk::ScopedAStatus::ok();
 }
@@ -44,7 +44,7 @@ ndk::ScopedAStatus CameraProviderShim::getCameraIdList(
 ndk::ScopedAStatus CameraProviderShim::getCameraDeviceInterface(
     const std::string& cameraDeviceName,
     std::shared_ptr<ICameraDevice>* _aidl_return) {
-    const std::string kPrefix = "device@1.0/virtual/";
+    const std::string kPrefix = "device@1.0/internal/";
     if (cameraDeviceName.rfind(kPrefix, 0) != 0) {
         return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
     }

@@ -1,5 +1,6 @@
 #include "CameraDeviceSessionShim.h"
 
+#include <aidl/android/hardware/camera/device/CameraBlob.h>
 #include <linux/ioctl.h>
 #include <system/camera_metadata.h>
 #include <android-base/file.h>
@@ -15,6 +16,8 @@ namespace aidl::android::hardware::camera::provider::shim {
 
 using ::aidl::android::hardware::camera::device::StreamConfiguration;
 using ::aidl::android::hardware::camera::device::HalStream;
+using ::aidl::android::hardware::camera::device::CameraBlob;
+using ::aidl::android::hardware::camera::device::CameraBlobId;
 using ::aidl::android::hardware::camera::device::CameraMetadata;
 using ::aidl::android::hardware::camera::device::ShutterMsg;
 using ::aidl::android::hardware::camera::device::RequestTemplate;
@@ -100,19 +103,36 @@ static int shimWinDequeue(preview_stream_ops_t* w, buffer_handle_t** buf, int* s
             return err;
         }
     }
-    size_t idx = win->next % win->handles.size();
-    win->next++;
+    std::lock_guard<std::mutex> lock(win->bufferLock);
+    if (win->available.empty()) {
+        return -EAGAIN;
+    }
+    const size_t idx = win->available.front();
+    win->available.pop_front();
+    win->dequeued[idx] = true;
     *buf = &win->handles[idx];
     *stride = win->strides[idx];
     return 0;
 }
 
-static int shimWinEnqueue(preview_stream_ops_t*, buffer_handle_t*) {
-    return 0;
+static int shimWinEnqueue(preview_stream_ops_t* w, buffer_handle_t* buf) {
+    auto* win = reinterpret_cast<ShimPreviewWindow*>(w);
+    std::lock_guard<std::mutex> lock(win->bufferLock);
+    for (size_t i = 0; i < win->handles.size(); ++i) {
+        if (&win->handles[i] == buf) {
+            if (!win->dequeued[i]) return -EINVAL;
+            // VFE completion order is not round-robin. Only a buffer
+            // actually returned by the producer may be dequeued again.
+            win->dequeued[i] = false;
+            win->available.push_back(i);
+            return 0;
+        }
+    }
+    return -EINVAL;
 }
 
-static int shimWinCancel(preview_stream_ops_t*, buffer_handle_t*) {
-    return 0;
+static int shimWinCancel(preview_stream_ops_t* w, buffer_handle_t* buf) {
+    return shimWinEnqueue(w, buf);
 }
 
 static int shimWinLock(preview_stream_ops_t*, buffer_handle_t*) {
@@ -383,7 +403,17 @@ std::atomic<std::chrono::steady_clock::time_point>
 
 // --- Dummy preview window ---------------------------------------------------
 
+ShimPreviewWindow::~ShimPreviewWindow() {
+    if (mGrallocDev != nullptr) {
+        for (auto handle : handles) {
+            if (handle != nullptr) mGrallocDev->free(mGrallocDev, handle);
+        }
+        gralloc_close(mGrallocDev);
+    }
+}
+
 int ShimPreviewWindow::allocateBuffers() {
+    std::lock_guard<std::mutex> lock(bufferLock);
     if (gralloc == nullptr) {
         const hw_module_t* mod = nullptr;
         if (hw_get_module(GRALLOC_HARDWARE_MODULE_ID, &mod) != 0) {
@@ -406,7 +436,8 @@ int ShimPreviewWindow::allocateBuffers() {
     }
     handles.clear();
     strides.clear();
-    next = 0;
+    available.clear();
+    dequeued.clear();
     int n = (count > 0) ? count : 4;
     if (width <= 0) width = 640;
     if (height <= 0) height = 480;
@@ -423,6 +454,8 @@ int ShimPreviewWindow::allocateBuffers() {
         }
         handles.push_back(h);
         strides.push_back(stride);
+        available.push_back(i);
+        dequeued.push_back(false);
     }
     ALOGI("shim: preview window allocated %d buffers %dx%d fmt=%d", n, width, height, format);
     return 0;
@@ -607,12 +640,14 @@ ndk::ScopedAStatus CameraDeviceSessionShim::close() {
         // results via mCallback and must not race the close drain.
         mWatchdogExit.store(true);
         if (mWatchdogThread.joinable()) {
+            ALOGI("shim: close joining watchdog");
             mWatchdogThread.join();
         }
         // Collect pending buffers so the framework's inflight tracking
         // drains and waitUntilDrained does not time out (which closes the
         // app with an error).
         {
+            std::lock_guard<std::mutex> resultLock(mResultLock);
             std::lock_guard<std::mutex> qlock(mQueueLock);
             drain.assign(mPendingPreview.begin(), mPendingPreview.end());
             drain.insert(drain.end(), mPendingJpeg.begin(), mPendingJpeg.end());
@@ -635,6 +670,7 @@ ndk::ScopedAStatus CameraDeviceSessionShim::close() {
     }
     if (dev != nullptr) {
         if (previewRunning) {
+            ALOGI("shim: close stopping preview");
             dev->ops->stop_preview(dev);
             // mako bring-up: give the legacy VFE/camif pipeline time to drain
             // after stop_preview.  Tearing the device down (or re-opening the
@@ -643,6 +679,7 @@ ndk::ScopedAStatus CameraDeviceSessionShim::close() {
             // watchdog reboot.
             usleep(300 * 1000);
         }
+        ALOGI("shim: close releasing HAL");
         dev->ops->release(dev);
         usleep(150 * 1000);
         dev->common.close(&dev->common);
@@ -692,29 +729,17 @@ ndk::ScopedAStatus CameraDeviceSessionShim::close() {
         // parts; return them as ERROR parts so those frames complete too.
         for (auto& [sid, vec] : extraDrain) {
             for (const auto& p : vec) {
-                CaptureResult r;
-                r.frameNumber = p.frameNumber;
-                r.fmqResultSize = 0;
-                r.partialResult = 1;
-                r.inputBuffer.streamId = -1;
-                const int64_t ts = systemTime(SYSTEM_TIME_MONOTONIC);
-                camera_metadata_t* fm = allocate_camera_metadata(4, 64);
-                add_camera_metadata_entry(fm, ANDROID_SENSOR_TIMESTAMP, &ts, 1);
-                size_t metaSize = get_camera_metadata_size(fm);
-                r.result.metadata.resize(metaSize);
-                memcpy(r.result.metadata.data(), fm, metaSize);
-                free_camera_metadata(fm);
-                StreamBuffer b{};
-                b.streamId = sid;
-                b.bufferId = p.bufferId;
-                b.status = BufferStatus::ERROR;
-                r.outputBuffers.push_back(std::move(b));
-                std::vector<CaptureResult> results;
-                results.push_back(std::move(r));
-                cb->processCaptureResult(results);
+                deliverErrorResult(p, sid, /*withShutter=*/false);
             }
         }
     }
+    // Imported request handles own duplicated descriptors. Camera close is
+    // their lifetime boundary; keeping them leaks ION buffers on each reopen.
+    for (const auto& [id, handle] : mBufferHandles) {
+        native_handle_close(handle);
+        native_handle_delete(handle);
+    }
+    mBufferHandles.clear();
     return ndk::ScopedAStatus::ok();
 }
 
@@ -908,9 +933,15 @@ ndk::ScopedAStatus CameraDeviceSessionShim::constructDefaultRequestSettings(
 
 ndk::ScopedAStatus CameraDeviceSessionShim::flush() {
     std::lock_guard<std::mutex> lock(mLock);
+    // Publish before waiting for a callback or cancel_picture, so a callback
+    // already filling a buffer can return it without touching a closed consumer.
+    mFlushAbortTime.store(systemTime(SYSTEM_TIME_MONOTONIC));
     if (mDevice != nullptr && mPreviewRunning) {
+        ALOGI("shim: flush cancelling picture");
         mDevice->ops->cancel_picture(mDevice);
     }
+    // Do not hold this across cancel_picture: it can wait for a HAL callback.
+    std::lock_guard<std::mutex> resultLock(mResultLock);
     // The app stops consuming preview buffers while closing/switching
     // cameras (its renderer thread quits before CameraDevice.close()).
     // The framework's repeating loop keeps resubmitting requests whose
@@ -923,7 +954,6 @@ ndk::ScopedAStatus CameraDeviceSessionShim::flush() {
     // to the stream without touching the consumer, so nothing blocks and
     // the drain completes promptly. The window expires so a session that
     // resumes normally keeps receiving real frames.
-    mFlushAbortTime.store(systemTime(SYSTEM_TIME_MONOTONIC));
     ALOGI("shim: DBG flush() called");
     // Return every pending buffer as an error result so the framework's
     // inflight tracking drains; otherwise waitUntilDrained times out when
@@ -984,26 +1014,7 @@ ndk::ScopedAStatus CameraDeviceSessionShim::flush() {
     }
     for (auto& [sid, vec] : extraDrain) {
         for (const auto& p : vec) {
-            CaptureResult r;
-            r.frameNumber = p.frameNumber;
-            r.fmqResultSize = 0;
-            r.partialResult = 1;
-            r.inputBuffer.streamId = -1;
-            const int64_t ts = systemTime(SYSTEM_TIME_MONOTONIC);
-            camera_metadata_t* fm = allocate_camera_metadata(4, 64);
-            add_camera_metadata_entry(fm, ANDROID_SENSOR_TIMESTAMP, &ts, 1);
-            size_t metaSize = get_camera_metadata_size(fm);
-            r.result.metadata.resize(metaSize);
-            memcpy(r.result.metadata.data(), fm, metaSize);
-            free_camera_metadata(fm);
-            StreamBuffer b{};
-            b.streamId = sid;
-            b.bufferId = p.bufferId;
-            b.status = BufferStatus::ERROR;
-            r.outputBuffers.push_back(std::move(b));
-            std::vector<CaptureResult> results;
-            results.push_back(std::move(r));
-            mCallback->processCaptureResult(results);
+            deliverErrorResult(p, sid, /*withShutter=*/false);
         }
     }
     return ndk::ScopedAStatus::ok();
@@ -1178,56 +1189,66 @@ void CameraDeviceSessionShim::processRequest(std::unique_lock<std::mutex>& lock,
         }
     }
 
-    // Detect a capture request FIRST and set the flag before pushing any
-    // buffers: a preview callback racing the buffer push would otherwise
-    // deliver the capture frame's preview shutter early (out-of-order vs
-    // the JPEG shutter) and duplicate its metadata.
-    for (const auto& buf : request.outputBuffers) {
-        if (buf.streamId == mJpegStreamId) {
-            std::lock_guard<std::mutex> qlock(mQueueLock);
-            mCaptureInFlight = true;
-            mCaptureInFlightSince = systemTime(SYSTEM_TIME_MONOTONIC);
-            break;
-        }
-    }
-
     bool hasPreviewBuffer = false;
-    for (const auto& buf : request.outputBuffers) {
-        if (buf.streamId == mPreviewStreamId) {
-            hasPreviewBuffer = true;
-        }
-        if (!buf.buffer.fds.empty()) {
-            native_handle_t* h = toNativeHandle(buf.buffer);
-            if (h != nullptr) {
-                mBufferHandles[buf.bufferId] = h;
-                ALOGI("shim: stored buffer %lld fds=%d ints=%d (fd0=%d)",
-                      static_cast<long long>(buf.bufferId),
-                      static_cast<int>(buf.buffer.fds.size()),
-                      static_cast<int>(buf.buffer.ints.size()),
-                      (buf.buffer.fds.size() > 0) ? buf.buffer.fds[0].get() : -2);
+    {
+        // Make every buffer of the request visible together. Otherwise a preview
+        // callback can consume it before its encoder buffer has been enqueued.
+        std::lock_guard<std::mutex> resultLock(mResultLock);
+        // Detect a capture request FIRST and set the flag before pushing any
+        // buffers: a preview callback racing the buffer push would otherwise
+        // deliver the capture frame's preview shutter early (out-of-order vs
+        // the JPEG shutter) and duplicate its metadata.
+        for (const auto& buf : request.outputBuffers) {
+            if (buf.streamId == mJpegStreamId) {
+                std::lock_guard<std::mutex> qlock(mQueueLock);
+                mCaptureInFlight = true;
+                mCaptureInFlightSince = systemTime(SYSTEM_TIME_MONOTONIC);
+                break;
             }
         }
-        {
-            std::lock_guard<std::mutex> qlock(mQueueLock);
+
+        for (const auto& buf : request.outputBuffers) {
             if (buf.streamId == mPreviewStreamId) {
-                mPendingPreview.push_back({buf.bufferId,
-                                           static_cast<uint32_t>(request.frameNumber),
-                                           systemTime(SYSTEM_TIME_MONOTONIC)});
-            } else if (buf.streamId == mJpegStreamId) {
-                mPendingJpeg.push_back({buf.bufferId,
-                                        static_cast<uint32_t>(request.frameNumber),
-                                        systemTime(SYSTEM_TIME_MONOTONIC)});
-            } else if (mPendingExtra.count(buf.streamId) > 0 ||
-                       [&]() {
-                           for (const auto& ex : mExtraStreams) {
-                               if (ex.id == buf.streamId) return true;
-                           }
-                           return false;
-                       }()) {
-                mPendingExtra[buf.streamId].push_back({buf.bufferId,
-                                                       static_cast<uint32_t>(
-                                                               request.frameNumber),
-                                                       systemTime(SYSTEM_TIME_MONOTONIC)});
+                hasPreviewBuffer = true;
+            }
+            if (!buf.buffer.fds.empty()) {
+                native_handle_t* h = toNativeHandle(buf.buffer);
+                if (h != nullptr) {
+                    auto old = mBufferHandles.find(buf.bufferId);
+                    if (old != mBufferHandles.end()) {
+                        native_handle_close(old->second);
+                        native_handle_delete(old->second);
+                    }
+                    mBufferHandles[buf.bufferId] = h;
+                    ALOGI("shim: stored buffer %lld fds=%d ints=%d (fd0=%d)",
+                          static_cast<long long>(buf.bufferId),
+                          static_cast<int>(buf.buffer.fds.size()),
+                          static_cast<int>(buf.buffer.ints.size()),
+                          (buf.buffer.fds.size() > 0) ? buf.buffer.fds[0].get() : -2);
+                }
+            }
+            {
+                std::lock_guard<std::mutex> qlock(mQueueLock);
+                if (buf.streamId == mPreviewStreamId) {
+                    mPendingPreview.push_back({buf.bufferId,
+                                               static_cast<uint32_t>(request.frameNumber),
+                                               systemTime(SYSTEM_TIME_MONOTONIC)});
+                } else if (buf.streamId == mJpegStreamId) {
+                    mPendingJpeg.push_back({buf.bufferId,
+                                            static_cast<uint32_t>(request.frameNumber),
+                                            systemTime(SYSTEM_TIME_MONOTONIC)});
+                } else if (mPendingExtra.count(buf.streamId) > 0 ||
+                           [&]() {
+                               for (const auto& ex : mExtraStreams) {
+                                   if (ex.id == buf.streamId) return true;
+                               }
+                               return false;
+                           }()) {
+                    mPendingExtra[buf.streamId].push_back({buf.bufferId,
+                                                           static_cast<uint32_t>(
+                                                                   request.frameNumber),
+                                                           systemTime(SYSTEM_TIME_MONOTONIC)});
+                }
             }
         }
     }
@@ -1343,7 +1364,9 @@ bool CameraDeviceSessionShim::fillOutputBuffer(int64_t bufferId, int32_t streamI
     // The handle's 'base' field carries the allocating process's mapping
     // address; clear it so gralloc performs a real map in our process.
     native_handle_t* nh = it->second;
-    if (nh->numFds == 2 && nh->numInts == 12 && nh->data[2] == 0x676d736d /* 'gmsm' */) {
+    const bool isMakoGrallocHandle =
+            nh->numFds == 2 && nh->numInts == 12 && nh->data[2] == 0x676d736d; // 'gmsm'
+    if (isMakoGrallocHandle) {
         nh->data[nh->numFds + 4] = 0;  // private_handle_t::base
     }
     void* vaddr = nullptr;
@@ -1424,21 +1447,21 @@ bool CameraDeviceSessionShim::fillOutputBuffer(int64_t bufferId, int32_t streamI
                        srcW, srcH, dstW, dstH);
         }
     } else if (streamId == mJpegStreamId) {
-        memcpy(vaddr, data, size);
-        // Append the camera3 JPEG blob footer at the end of the buffer so the
-        // app's ImageReader can read the JPEG size (AIDL CameraBlob format:
-        // {jpeg_blob_id = 0x00FF, jpeg_size}).
-        // The JPEG blob footer lives in the LAST 8 bytes of the buffer
-        // (camera3 semantics).  Anchor it to the mapped buffer size -- the
-        // gralloc handle ints are stride/geometry fields, not the blob
-        // capacity, and using them wrote the footer to a garbage offset.
-        if (bufSize >= 8) {
-            uint8_t* footer = static_cast<uint8_t*>(vaddr) + bufSize - 8;
-            uint32_t id = 0x00FF;  // CAMERA3_JPEG_BLOB_ID (AIDL CameraBlobId::JPEG)
-            uint32_t jsz = static_cast<uint32_t>(size);
-            memcpy(footer, &id, 4);
-            memcpy(footer + 4, &jsz, 4);
+        // The BLOB width is the capacity advertised to ImageReader. The
+        // allocation can include page padding beyond that logical capacity.
+        const size_t blobCapacity = isMakoGrallocHandle
+                ? static_cast<size_t>(nh->data[nh->numFds + 9])
+                : bufSize;
+        if (blobCapacity > bufSize || blobCapacity < sizeof(CameraBlob) ||
+            size > blobCapacity - sizeof(CameraBlob)) {
+            ALOGE("shim: JPEG size %zu exceeds BLOB capacity %zu", size, blobCapacity);
+            munmap(vaddr, bufSize);
+            return false;
         }
+        const CameraBlob footer{CameraBlobId::JPEG, static_cast<int32_t>(size)};
+        memcpy(vaddr, data, size);
+        memcpy(static_cast<uint8_t*>(vaddr) + blobCapacity - sizeof(footer),
+               &footer, sizeof(footer));
     } else {
         // Extra stream (or unknown): convert from the last preview frame.
         // Encoder/YUV consumers get NV12, image/GL consumers get RGBA.
@@ -1493,6 +1516,7 @@ bool CameraDeviceSessionShim::fillOutputBuffer(int64_t bufferId, int32_t streamI
 }
 
 void CameraDeviceSessionShim::handlePreviewBuffer(const void* data, size_t size) {
+    std::lock_guard<std::mutex> resultLock(mResultLock);
     if (mCallback == nullptr) {
         return;
     }
@@ -1503,9 +1527,9 @@ void CameraDeviceSessionShim::handlePreviewBuffer(const void* data, size_t size)
             ALOGI("shim: DBG preview cb dropped (queue empty) size=%zu", size);
             return;
         }
-        ALOGI("shim: DBG preview cb queued size=%zu front=%u/%u q=%zu",
+        ALOGI("shim: DBG preview cb queued size=%zu front=%u/%lld q=%zu",
               size, mPendingPreview.front().frameNumber,
-              mPendingPreview.front().bufferId, mPendingPreview.size());
+              static_cast<long long>(mPendingPreview.front().bufferId), mPendingPreview.size());
         mLastPreviewFrame.assign(static_cast<const uint8_t*>(data),
                                  static_cast<const uint8_t*>(data) + size);
         if (mCaptureInFlight) {
@@ -1528,8 +1552,8 @@ void CameraDeviceSessionShim::handlePreviewBuffer(const void* data, size_t size)
         mPendingPreview.pop_front();
     }
     const uint8_t* dbg = static_cast<const uint8_t*>(data);
-    ALOGI("shim: preview frame %d into buffer %d cb_size=%zu win=%dx%d pv=%dx%d first=[%d %d %d %d %d %d]",
-          pending.frameNumber, pending.bufferId, size, mShimWindow.width, mShimWindow.height,
+    ALOGI("shim: preview frame %u into buffer %lld cb_size=%zu win=%dx%d pv=%dx%d first=[%d %d %d %d %d %d]",
+          pending.frameNumber, static_cast<long long>(pending.bufferId), size, mShimWindow.width, mShimWindow.height,
           mPreviewWidth, mPreviewHeight,
           (size > 6) ? dbg[0] : -1, (size > 6) ? dbg[1] : -1, (size > 6) ? dbg[2] : -1,
           (size > 6) ? dbg[3] : -1, (size > 6) ? dbg[4] : -1, (size > 6) ? dbg[5] : -1);
@@ -1575,7 +1599,7 @@ void CameraDeviceSessionShim::handlePreviewBuffer(const void* data, size_t size)
     {
         std::lock_guard<std::mutex> qlock(mQueueLock);
         for (auto& [sid, q] : mPendingExtra) {
-            if (q.empty()) {
+            if (q.empty() || q.front().frameNumber != pending.frameNumber) {
                 continue;
             }
             PendingBuffer ep = q.front();
@@ -1640,18 +1664,20 @@ void CameraDeviceSessionShim::deliverErrorResult(const PendingBuffer& p,
     CaptureResult r;
     r.frameNumber = p.frameNumber;
     r.fmqResultSize = 0;
-    r.partialResult = 1;
+    r.partialResult = withShutter ? 1 : 0;
     r.inputBuffer.streamId = -1;
-    camera_metadata_t* fm = allocate_camera_metadata(4, 64);
-    add_camera_metadata_entry(fm, ANDROID_SENSOR_TIMESTAMP, &ts, 1);
-    const int32_t aeState = ANDROID_CONTROL_AE_STATE_INACTIVE;
-    add_camera_metadata_entry(fm, ANDROID_CONTROL_AE_STATE, &aeState, 1);
-    const int32_t afState = ANDROID_CONTROL_AF_STATE_INACTIVE;
-    add_camera_metadata_entry(fm, ANDROID_CONTROL_AF_STATE, &afState, 1);
-    size_t metaSize = get_camera_metadata_size(fm);
-    r.result.metadata.resize(metaSize);
-    memcpy(r.result.metadata.data(), fm, metaSize);
-    free_camera_metadata(fm);
+    if (withShutter) {
+        camera_metadata_t* fm = allocate_camera_metadata(4, 64);
+        add_camera_metadata_entry(fm, ANDROID_SENSOR_TIMESTAMP, &ts, 1);
+        const int32_t aeState = ANDROID_CONTROL_AE_STATE_INACTIVE;
+        add_camera_metadata_entry(fm, ANDROID_CONTROL_AE_STATE, &aeState, 1);
+        const int32_t afState = ANDROID_CONTROL_AF_STATE_INACTIVE;
+        add_camera_metadata_entry(fm, ANDROID_CONTROL_AF_STATE, &afState, 1);
+        size_t metaSize = get_camera_metadata_size(fm);
+        r.result.metadata.resize(metaSize);
+        memcpy(r.result.metadata.data(), fm, metaSize);
+        free_camera_metadata(fm);
+    }
     StreamBuffer b{};
     b.streamId = streamId;
     b.bufferId = p.bufferId;
@@ -1676,10 +1702,16 @@ void CameraDeviceSessionShim::watchdogLoop() {
         if (mWatchdogExit.load()) {
             break;
         }
+        std::lock_guard<std::mutex> resultLock(mResultLock);
         std::vector<PendingBuffer> stalePreview;
         std::map<int32_t, std::vector<PendingBuffer>> staleExtra;
         {
             std::lock_guard<std::mutex> qlock(mQueueLock);
+            // Leave the buffers in the queue until JPEG delivery has sent
+            // their shutters. Popping first and skipping delivery loses them.
+            if (mCaptureInFlight) {
+                continue;
+            }
             const int64_t now = systemTime(SYSTEM_TIME_MONOTONIC);
             while (!mPendingPreview.empty() &&
                    mPendingPreview.front().enqueuedAt != 0 &&
@@ -1695,11 +1727,7 @@ void CameraDeviceSessionShim::watchdogLoop() {
                 }
             }
         }
-        const bool captureInFlight = mCaptureInFlight;
         for (const auto& p : stalePreview) {
-            if (captureInFlight) {
-                break;  // capture flow owns ordering; leave them queued
-            }
             ALOGW("shim: watchdog completing stale preview frame %d", p.frameNumber);
             deliverErrorResult(p, mPreviewStreamId, /*withShutter=*/true);
         }
@@ -1754,6 +1782,7 @@ void CameraDeviceSessionShim::deliverPreviewResult(const PendingBuffer& pv) {
 }
 
 void CameraDeviceSessionShim::handleJpegBuffer(const void* data, size_t size) {
+    std::lock_guard<std::mutex> resultLock(mResultLock);
     if (mCallback == nullptr) {
         return;
     }
@@ -1809,13 +1838,21 @@ void CameraDeviceSessionShim::handleJpegBuffer(const void* data, size_t size) {
             postFlush.push_back(mPendingPreview.front());
             mPendingPreview.pop_front();
         }
-        if (mPendingJpeg.empty()) {
-            mCaptureInFlight = false;
-        }
+    }
+    camera_device_t* dev = mDevice;
+    const uint32_t generation = mSessionGeneration;
+    const bool stopPreview = dev != nullptr && dev->ops != nullptr &&
+                             dev->ops->stop_preview != nullptr;
+    if (stopPreview) {
+        // Publish the restart barrier before returning results, which allow
+        // the framework to submit the next preview/capture immediately.
+        std::lock_guard<std::mutex> qlock(mQueueLock);
+        mStopPending = true;
+        mPreviewRunning = false;
     }
     const uint8_t* jd = static_cast<const uint8_t*>(data);
-    ALOGI("shim: jpeg %d bytes into buffer %d head=[%02x %02x %02x %02x %02x %02x]",
-          static_cast<int>(size), pendingJpeg.bufferId,
+    ALOGI("shim: jpeg %zu bytes into buffer %lld head=[%02x %02x %02x %02x %02x %02x]",
+          size, static_cast<long long>(pendingJpeg.bufferId),
           (size > 0) ? jd[0] : 0, (size > 1) ? jd[1] : 0, (size > 2) ? jd[2] : 0,
           (size > 3) ? jd[3] : 0, (size > 4) ? jd[4] : 0, (size > 5) ? jd[5] : 0);
     // The HAL's JPEG stream may carry a leading byte before the SOI marker;
@@ -1844,7 +1881,8 @@ void CameraDeviceSessionShim::handleJpegBuffer(const void* data, size_t size) {
     for (const auto& pv : preFlush) {
         deliverPreviewResult(pv);
     }
-    fillOutputBuffer(pendingJpeg.bufferId, mJpegStreamId, jpegData, jpegSize);
+    const bool jpegWritten = fillOutputBuffer(
+            pendingJpeg.bufferId, mJpegStreamId, jpegData, jpegSize);
     const int64_t jpegTimestamp = systemTime(SYSTEM_TIME_MONOTONIC);
     sendShutterNotify(pendingJpeg.frameNumber, jpegTimestamp);
     CaptureResult result;
@@ -1880,7 +1918,7 @@ void CameraDeviceSessionShim::handleJpegBuffer(const void* data, size_t size) {
     StreamBuffer out{};
     out.streamId = mJpegStreamId;
     out.bufferId = pendingJpeg.bufferId;
-    out.status = BufferStatus::OK;
+    out.status = jpegWritten ? BufferStatus::OK : BufferStatus::ERROR;
     result.outputBuffers.push_back(std::move(out));
     if (hasPostview) {
         if (!mLastPreviewFrame.empty()) {
@@ -1903,6 +1941,10 @@ void CameraDeviceSessionShim::handleJpegBuffer(const void* data, size_t size) {
     for (const auto& pv : postFlush) {
         deliverPreviewResult(pv);
     }
+    {
+        std::lock_guard<std::mutex> qlock(mQueueLock);
+        mCaptureInFlight = !mPendingJpeg.empty();
+    }
     // The legacy HAL stops the preview stream internally for snapshot
     // (pausePreviewForSnapshot) and remains in QCAMERA_HAL_TAKE_PICTURE;
     // a second take_picture in that state is a no-op and the session
@@ -1911,28 +1953,24 @@ void CameraDeviceSessionShim::handleJpegBuffer(const void* data, size_t size) {
     // and stop_preview -> cancelPictureInternal waits on that lock
     // (deadlock if called inline). Reset the running flag so the next
     // preview request restarts the stream.
-    mPreviewRunning = false;
-    camera_device_t* dev = mDevice;
-    const uint32_t generation = mSessionGeneration;
-    if (dev != nullptr && dev->ops != nullptr && dev->ops->stop_preview != nullptr) {
-        {
-            std::lock_guard<std::mutex> qlock(mQueueLock);
-            mStopPending = true;
-        }
-        std::thread([this, dev, generation]() {
+    if (stopPreview) {
+        std::thread([this, self = ref<CameraDeviceSessionShim>(), dev, generation]() {
+            // Keep this session alive until the deferred HAL operation ends.
+            (void)self;
             usleep(50000);
             // The app may close and reopen the camera between the JPEG
             // callback and this stop; stopping a freshly-opened session
             // tears down the live preview. Only stop our own generation.
-            {
-                std::lock_guard<std::mutex> lock(mLock);
-                if (mClosed || mSessionGeneration != generation) {
-                    std::lock_guard<std::mutex> qlock(mQueueLock);
-                    mStopPending = false;
-                    mStopCv.notify_all();
-                    return;
-                }
+            // Hold the device lock through stop/start so close() cannot
+            // release dev between the generation check and the HAL call.
+            std::lock_guard<std::mutex> lock(mLock);
+            if (mClosed || mSessionGeneration != generation) {
+                std::lock_guard<std::mutex> qlock(mQueueLock);
+                mStopPending = false;
+                mStopCv.notify_all();
+                return;
             }
+            ALOGI("shim: post-capture stopping preview");
             dev->ops->stop_preview(dev);
             // The framework only auto-resubmits the repeating preview
             // request after the previous request's result completes, and
@@ -2043,7 +2081,7 @@ bool CameraDeviceSessionShim::chooseHalPreviewSizeLocked() {
     }
     mHalPreviewWidth = bestW;
     mHalPreviewHeight = bestH;
-    ALOGI("shim: hal preview size %dx%d for stream %dx%d", bestW, bestH, mPreviewWidth,
+    ALOGI("shim: hal preview size %ldx%ld for stream %dx%d", bestW, bestH, mPreviewWidth,
           mPreviewHeight);
     return true;
 }

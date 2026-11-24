@@ -38,12 +38,15 @@ using ::aidl::android::hardware::camera::device::NotifyMsg;
 // preview stream through a preview_stream_ops_t window (dequeue/lock buffers,
 // camera daemon writes frames into them). We supply our own gralloc buffers.
 struct ShimPreviewWindow {
+    ~ShimPreviewWindow();
     preview_stream_ops_t ops{};
     alloc_device_t* mGrallocDev = nullptr;
     gralloc_module_t* gralloc = nullptr;
     std::vector<buffer_handle_t> handles;
     std::vector<int> strides;
-    size_t next = 0;
+    std::mutex bufferLock;
+    std::deque<size_t> available;
+    std::vector<bool> dequeued;
     int width = 0;
     int height = 0;
     int format = 0x11;
@@ -148,6 +151,11 @@ class CameraDeviceSessionShim : public BnCameraDeviceSession {
     // push/pop corrupts the deque and produces garbage {buffer 0, frame 0}
     // entries ("Shutter notification for non-existent frame number 0").
     std::mutex mQueueLock;
+    // Serialize queue removal through callback delivery. Releasing only the
+    // queue lock before notify() lets the watchdog/JPEG/preview threads send
+    // a later frame's shutter first. Lock before mQueueLock; never take mLock
+    // from a result-delivery callback.
+    std::mutex mResultLock;
     std::condition_variable mCv;
 
     camera_device_t* mDevice;

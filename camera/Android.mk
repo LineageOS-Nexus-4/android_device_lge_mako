@@ -51,15 +51,13 @@ LOCAL_SRC_FILES := \
 
 LOCAL_C_INCLUDES += \
     $(LOCAL_PATH)/mm-camera-interface \
-    hardware/qcom/media/mm-core/inc \
-    hardware/qcom/media/libstagefrighthw \
     hardware/qcom/display/msm8960/libgralloc \
     hardware/qcom/display/msm8960/libgenlock \
     frameworks/native/include/media/hardware \
     kernel/lge/mako/include
 
 # Kernel headers
-LOCAL_HEADER_LIBRARIES := generated_kernel_headers
+LOCAL_HEADER_LIBRARIES := generated_kernel_headers media_plugin_headers
 
 LOCAL_SHARED_LIBRARIES := libutils libui libcamera_client libcamera_metadata liblog libcutils libbinder libnativewindow libmedia
 LOCAL_SHARED_LIBRARIES += libgenlock libmmcamera_interface
