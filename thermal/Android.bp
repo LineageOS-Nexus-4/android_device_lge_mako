@@ -1,0 +1,15 @@
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
+cc_binary {
+    name: "android.hardware.thermal-service.mako",
+    relative_install_path: "hw",
+    vendor: true,
+    init_rc: ["thermal-mako.rc"],
+    vintf_fragments: ["thermal-mako.xml"],
+    srcs: ["Thermal.cpp"],
+    shared_libs: ["libbinder_ndk"],
+    static_libs: ["android.hardware.thermal-V3-ndk"],
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+}
