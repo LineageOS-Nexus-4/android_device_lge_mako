@@ -65,8 +65,8 @@ Return<void> ResponseHandler::acknowledgeRequest(int32_t) {
 Return<void> ResponseHandler::setRadioPowerResponse(const R10::RadioResponseInfo& info) {
     const auto kind = mCtx->popRequest(info.serial);
     if (kind != RequestKind::MODEM_SET_RADIO_POWER) return drop(__func__, info, kind), Void();
-    if (mCtx->modemResponse) {
-        callStatus(__func__, mCtx->modemResponse->setRadioPowerResponse(toAidl(info)));
+    if (const auto response = mCtx->getModemResponse()) {
+        callStatus(__func__, response->setRadioPowerResponse(toAidl(info)));
     }
     return Void();
 }
@@ -78,17 +78,17 @@ Return<void> ResponseHandler::getDeviceIdentityResponse(const R10::RadioResponse
                                                         const hidl_string& spn) {
     const auto kind = mCtx->popRequest(info.serial);
     if (kind == RequestKind::MODEM_GET_IMEI) {
-        if (mCtx->modemResponse) {
+        if (const auto response = mCtx->getModemResponse()) {
             ar::modem::ImeiInfo imeiInfo;
             imeiInfo.type = ar::modem::ImeiInfo::ImeiType::PRIMARY;
             imeiInfo.imei = imei;
             imeiInfo.svn = imeisv;
             callStatus(__func__,
-                       mCtx->modemResponse->getImeiResponse(toAidl(info), imeiInfo));
+                       response->getImeiResponse(toAidl(info), imeiInfo));
         }
     } else if (kind == RequestKind::MODEM_GET_DEVICE_IDENTITY) {
-        if (mCtx->modemResponse) {
-            callStatus(__func__, mCtx->modemResponse->getDeviceIdentityResponse(
+        if (const auto response = mCtx->getModemResponse()) {
+            callStatus(__func__, response->getDeviceIdentityResponse(
                                          toAidl(info), imei, imeisv, svn, spn));
         }
     } else {
@@ -103,8 +103,8 @@ Return<void> ResponseHandler::getBasebandVersionResponse(const R10::RadioRespons
     if (kind != RequestKind::MODEM_GET_BASEBAND_VERSION) {
         return drop(__func__, info, kind), Void();
     }
-    if (mCtx->modemResponse) {
-        callStatus(__func__, mCtx->modemResponse->getBasebandVersionResponse(toAidl(info), version));
+    if (const auto response = mCtx->getModemResponse()) {
+        callStatus(__func__, response->getBasebandVersionResponse(toAidl(info), version));
     }
     return Void();
 }
@@ -115,9 +115,9 @@ Return<void> ResponseHandler::getRadioCapabilityResponse(const R10::RadioRespons
     if (kind != RequestKind::MODEM_GET_RADIO_CAPABILITY) {
         return drop(__func__, info, kind), Void();
     }
-    if (mCtx->modemResponse) {
+    if (const auto response = mCtx->getModemResponse()) {
         callStatus(__func__,
-                   mCtx->modemResponse->getRadioCapabilityResponse(toAidl(info), toAidl(rc)));
+                   response->getRadioCapabilityResponse(toAidl(info), toAidl(rc)));
     }
     return Void();
 }
@@ -128,9 +128,9 @@ Return<void> ResponseHandler::setRadioCapabilityResponse(const R10::RadioRespons
     if (kind != RequestKind::MODEM_SET_RADIO_CAPABILITY) {
         return drop(__func__, info, kind), Void();
     }
-    if (mCtx->modemResponse) {
+    if (const auto response = mCtx->getModemResponse()) {
         callStatus(__func__,
-                   mCtx->modemResponse->setRadioCapabilityResponse(toAidl(info), toAidl(rc)));
+                   response->setRadioCapabilityResponse(toAidl(info), toAidl(rc)));
     }
     return Void();
 }
@@ -141,7 +141,7 @@ Return<void> ResponseHandler::getHardwareConfigResponse(
     if (kind != RequestKind::MODEM_GET_HARDWARE_CONFIG) {
         return drop(__func__, info, kind), Void();
     }
-    if (mCtx->modemResponse) {
+    if (const auto response = mCtx->getModemResponse()) {
         std::vector<ar::modem::HardwareConfig> out;
         for (const auto& hw : config) {
             ar::modem::HardwareConfig cfg;
@@ -162,7 +162,7 @@ Return<void> ResponseHandler::getHardwareConfigResponse(
             cfg.sim.push_back(sim);
             out.push_back(cfg);
         }
-        callStatus(__func__, mCtx->modemResponse->getHardwareConfigResponse(toAidl(info), out));
+        callStatus(__func__, response->getHardwareConfigResponse(toAidl(info), out));
     }
     return Void();
 }
@@ -170,8 +170,8 @@ Return<void> ResponseHandler::getHardwareConfigResponse(
 Return<void> ResponseHandler::requestShutdownResponse(const R10::RadioResponseInfo& info) {
     const auto kind = mCtx->popRequest(info.serial);
     if (kind != RequestKind::MODEM_REQUEST_SHUTDOWN) return drop(__func__, info, kind), Void();
-    if (mCtx->modemResponse) {
-        callStatus(__func__, mCtx->modemResponse->requestShutdownResponse(toAidl(info)));
+    if (const auto response = mCtx->getModemResponse()) {
+        callStatus(__func__, response->requestShutdownResponse(toAidl(info)));
     }
     return Void();
 }
@@ -179,8 +179,8 @@ Return<void> ResponseHandler::requestShutdownResponse(const R10::RadioResponseIn
 Return<void> ResponseHandler::sendDeviceStateResponse(const R10::RadioResponseInfo& info) {
     const auto kind = mCtx->popRequest(info.serial);
     if (kind != RequestKind::MODEM_SEND_DEVICE_STATE) return drop(__func__, info, kind), Void();
-    if (mCtx->modemResponse) {
-        callStatus(__func__, mCtx->modemResponse->sendDeviceStateResponse(toAidl(info)));
+    if (const auto response = mCtx->getModemResponse()) {
+        callStatus(__func__, response->sendDeviceStateResponse(toAidl(info)));
     }
     return Void();
 }

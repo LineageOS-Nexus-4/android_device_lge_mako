@@ -8,6 +8,46 @@
 
 namespace android::hardware::radio::shim {
 
+void ShimContext::setModemResponseFunctions(
+        const std::shared_ptr<ar::modem::IRadioModemResponse>& response,
+        const std::shared_ptr<ar::modem::IRadioModemIndication>& indication) {
+    std::lock_guard<std::mutex> lock(mModemMutex);
+    mModemResponse = response;
+    mModemIndication = indication;
+
+    // libril sends the initial state when the shim connects. A new framework
+    // process also needs that state even when the modem has not changed state.
+    // Keep the oneway replay ordered with subsequent live indications.
+    if (mModemIndication && mRadioState) {
+        const auto status = mModemIndication->radioStateChanged(
+                ar::RadioIndicationType::UNSOLICITED, *mRadioState);
+        if (!status.isOk()) {
+            LOG(WARNING) << "Could not replay modem state: " << status.getDescription();
+        }
+    }
+}
+
+std::shared_ptr<ar::modem::IRadioModemResponse> ShimContext::getModemResponse() {
+    std::lock_guard<std::mutex> lock(mModemMutex);
+    return mModemResponse;
+}
+
+std::shared_ptr<ar::modem::IRadioModemIndication> ShimContext::getModemIndication() {
+    std::lock_guard<std::mutex> lock(mModemMutex);
+    return mModemIndication;
+}
+
+void ShimContext::onRadioStateChanged(ar::RadioIndicationType type, ar::modem::RadioState state) {
+    std::lock_guard<std::mutex> lock(mModemMutex);
+    mRadioState = state;
+    if (mModemIndication) {
+        const auto status = mModemIndication->radioStateChanged(type, state);
+        if (!status.isOk()) {
+            LOG(WARNING) << "Could not send modem state: " << status.getDescription();
+        }
+    }
+}
+
 void ShimContext::registerRequest(int32_t serial, RequestKind kind) {
     std::lock_guard<std::mutex> lock(mMutex);
     mSerialToKind[serial] = kind;

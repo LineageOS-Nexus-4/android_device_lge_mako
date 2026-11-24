@@ -9,8 +9,7 @@ using ::ndk::ScopedAStatus;
 ScopedAStatus RadioModem::setResponseFunctions(
         const std::shared_ptr<ar::modem::IRadioModemResponse>& response,
         const std::shared_ptr<ar::modem::IRadioModemIndication>& indication) {
-    mCtx->modemResponse = response;
-    mCtx->modemIndication = indication;
+    mCtx->setModemResponseFunctions(response, indication);
     return ScopedAStatus::ok();
 }
 
@@ -107,8 +106,8 @@ ScopedAStatus RadioModem::getHardwareConfig(int32_t serial) {
 
 ScopedAStatus RadioModem::getModemStackStatus(int32_t serial) {
     // V1.1 has no getModemStackStatus; the modem is always enabled.
-    if (mCtx->modemResponse) {
-        mCtx->modemResponse->getModemStackStatusResponse(mCtx->noError(serial), true);
+    if (const auto response = mCtx->getModemResponse()) {
+        response->getModemStackStatusResponse(mCtx->noError(serial), true);
     }
     return ScopedAStatus::ok();
 }
@@ -138,43 +137,43 @@ ScopedAStatus RadioModem::sendDeviceState(int32_t serial, ar::modem::DeviceState
 }
 
 ScopedAStatus RadioModem::enableModem(int32_t serial, bool) {
-    if (mCtx->modemResponse) {
-        mCtx->modemResponse->enableModemResponse(mCtx->notSupported(serial));
+    if (const auto response = mCtx->getModemResponse()) {
+        response->enableModemResponse(mCtx->notSupported(serial));
     }
     return ScopedAStatus::ok();
 }
 
 ScopedAStatus RadioModem::getModemActivityInfo(int32_t serial) {
-    if (mCtx->modemResponse) {
-        mCtx->modemResponse->getModemActivityInfoResponse(mCtx->notSupported(serial), {});
+    if (const auto response = mCtx->getModemResponse()) {
+        response->getModemActivityInfoResponse(mCtx->notSupported(serial), {});
     }
     return ScopedAStatus::ok();
 }
 
 ScopedAStatus RadioModem::nvReadItem(int32_t serial, ar::modem::NvItem) {
-    if (mCtx->modemResponse) {
-        mCtx->modemResponse->nvReadItemResponse(mCtx->notSupported(serial), "");
+    if (const auto response = mCtx->getModemResponse()) {
+        response->nvReadItemResponse(mCtx->notSupported(serial), "");
     }
     return ScopedAStatus::ok();
 }
 
 ScopedAStatus RadioModem::nvResetConfig(int32_t serial, ar::modem::ResetNvType) {
-    if (mCtx->modemResponse) {
-        mCtx->modemResponse->nvResetConfigResponse(mCtx->notSupported(serial));
+    if (const auto response = mCtx->getModemResponse()) {
+        response->nvResetConfigResponse(mCtx->notSupported(serial));
     }
     return ScopedAStatus::ok();
 }
 
 ScopedAStatus RadioModem::nvWriteCdmaPrl(int32_t serial, const std::vector<uint8_t>&) {
-    if (mCtx->modemResponse) {
-        mCtx->modemResponse->nvWriteCdmaPrlResponse(mCtx->notSupported(serial));
+    if (const auto response = mCtx->getModemResponse()) {
+        response->nvWriteCdmaPrlResponse(mCtx->notSupported(serial));
     }
     return ScopedAStatus::ok();
 }
 
 ScopedAStatus RadioModem::nvWriteItem(int32_t serial, const ar::modem::NvWriteItem&) {
-    if (mCtx->modemResponse) {
-        mCtx->modemResponse->nvWriteItemResponse(mCtx->notSupported(serial));
+    if (const auto response = mCtx->getModemResponse()) {
+        response->nvWriteItemResponse(mCtx->notSupported(serial));
     }
     return ScopedAStatus::ok();
 }

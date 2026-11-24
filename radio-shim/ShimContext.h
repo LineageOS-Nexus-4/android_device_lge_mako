@@ -33,6 +33,7 @@
 
 #include <cstdint>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 
 namespace android::hardware::radio::shim {
@@ -156,8 +157,13 @@ class ShimContext {
     sp<R11::IRadioIndication> hidlIndication;
 
     // AIDL callbacks registered by the framework.
-    std::shared_ptr<ar::modem::IRadioModemResponse> modemResponse;
-    std::shared_ptr<ar::modem::IRadioModemIndication> modemIndication;
+    void setModemResponseFunctions(
+            const std::shared_ptr<ar::modem::IRadioModemResponse>& response,
+            const std::shared_ptr<ar::modem::IRadioModemIndication>& indication);
+    std::shared_ptr<ar::modem::IRadioModemResponse> getModemResponse();
+    std::shared_ptr<ar::modem::IRadioModemIndication> getModemIndication();
+    void onRadioStateChanged(ar::RadioIndicationType type, ar::modem::RadioState state);
+
     std::shared_ptr<ar::sim::IRadioSimResponse> simResponse;
     std::shared_ptr<ar::sim::IRadioSimIndication> simIndication;
     std::shared_ptr<ar::network::IRadioNetworkResponse> networkResponse;
@@ -210,6 +216,11 @@ class ShimContext {
     static ar::RadioResponseInfo notSupported(int32_t serial);
 
   private:
+    std::mutex mModemMutex;
+    std::shared_ptr<ar::modem::IRadioModemResponse> mModemResponse;
+    std::shared_ptr<ar::modem::IRadioModemIndication> mModemIndication;
+    std::optional<ar::modem::RadioState> mRadioState;
+
     std::mutex mMutex;
     std::unordered_map<int32_t, RequestKind> mSerialToKind;
     std::string mIccId;

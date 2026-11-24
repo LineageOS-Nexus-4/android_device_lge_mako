@@ -23,11 +23,8 @@ void IndicationHandler::drop(const char* method, R10::RadioIndicationType) {
 
 Return<void> IndicationHandler::radioStateChanged(R10::RadioIndicationType type,
                                                   R10::RadioState radioState) {
-    if (mCtx->modemIndication) {
-        callStatus(__func__, mCtx->modemIndication->radioStateChanged(
-                                     static_cast<ar::RadioIndicationType>(type),
-                                     static_cast<ar::modem::RadioState>(radioState)));
-    }
+    mCtx->onRadioStateChanged(static_cast<ar::RadioIndicationType>(type),
+                              static_cast<ar::modem::RadioState>(radioState));
     return Void();
 }
 
@@ -245,8 +242,8 @@ Return<void> IndicationHandler::exitEmergencyCallbackMode(R10::RadioIndicationTy
 }
 
 Return<void> IndicationHandler::rilConnected(R10::RadioIndicationType type) {
-    if (mCtx->modemIndication) {
-        callStatus(__func__, mCtx->modemIndication->rilConnected(
+    if (const auto indication = mCtx->getModemIndication()) {
+        callStatus(__func__, indication->rilConnected(
                                      static_cast<ar::RadioIndicationType>(type)));
     }
     return Void();
@@ -291,7 +288,7 @@ Return<void> IndicationHandler::srvccStateNotify(R10::RadioIndicationType type,
 
 Return<void> IndicationHandler::hardwareConfigChanged(
         R10::RadioIndicationType type, const hidl_vec<R10::HardwareConfig>& configs) {
-    if (mCtx->modemIndication) {
+    if (const auto indication = mCtx->getModemIndication()) {
         std::vector<ar::modem::HardwareConfig> out;
         for (const auto& hw : configs) {
             ar::modem::HardwareConfig cfg;
@@ -312,7 +309,7 @@ Return<void> IndicationHandler::hardwareConfigChanged(
             cfg.sim.push_back(sim);
             out.push_back(cfg);
         }
-        callStatus(__func__, mCtx->modemIndication->hardwareConfigChanged(
+        callStatus(__func__, indication->hardwareConfigChanged(
                                      static_cast<ar::RadioIndicationType>(type), out));
     }
     return Void();
@@ -320,8 +317,8 @@ Return<void> IndicationHandler::hardwareConfigChanged(
 
 Return<void> IndicationHandler::radioCapabilityIndication(R10::RadioIndicationType type,
                                                           const R10::RadioCapability& rc) {
-    if (mCtx->modemIndication) {
-        callStatus(__func__, mCtx->modemIndication->radioCapabilityIndication(
+    if (const auto indication = mCtx->getModemIndication()) {
+        callStatus(__func__, indication->radioCapabilityIndication(
                                      static_cast<ar::RadioIndicationType>(type), toAidl(rc)));
     }
     return Void();
@@ -343,8 +340,8 @@ Return<void> IndicationHandler::pcoData(R10::RadioIndicationType type,
 
 Return<void> IndicationHandler::modemReset(R10::RadioIndicationType type,
                                            const hidl_string& reason) {
-    if (mCtx->modemIndication) {
-        callStatus(__func__, mCtx->modemIndication->modemReset(
+    if (const auto indication = mCtx->getModemIndication()) {
+        callStatus(__func__, indication->modemReset(
                                      static_cast<ar::RadioIndicationType>(type), reason));
     }
     return Void();

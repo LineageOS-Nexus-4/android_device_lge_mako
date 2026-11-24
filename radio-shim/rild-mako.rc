@@ -24,3 +24,6 @@ on boot
 on property:vendor.radio.modem_ready=1
     start vendor.ril-daemon
     start vendor.radio-mako-shim
+
+on property:vendor.radio.modem_restart=*
+    restart vendor.ril-daemon
